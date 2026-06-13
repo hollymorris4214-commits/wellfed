@@ -1,9 +1,12 @@
-const CACHE_NAME = 'wellfed-app-shell-v2'
+const CACHE_NAME = 'wellfed-app-shell-v3'
 const APP_SCOPE = self.registration.scope
 const APP_SHELL_URL = new URL('./', APP_SCOPE).toString()
 const CORE_ASSETS = [
   APP_SHELL_URL,
   new URL('manifest.webmanifest', APP_SCOPE).toString(),
+  new URL('apple-touch-icon.png', APP_SCOPE).toString(),
+  new URL('icon-192.png', APP_SCOPE).toString(),
+  new URL('icon-512.png', APP_SCOPE).toString(),
   new URL('wellfed-icon.svg', APP_SCOPE).toString(),
 ]
 

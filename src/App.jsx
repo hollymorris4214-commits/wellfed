@@ -349,8 +349,14 @@ const downloadTextFile = (filename, text, type) => {
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = filename
+  anchor.rel = 'noopener'
+  anchor.style.display = 'none'
+  document.body.appendChild(anchor)
   anchor.click()
-  URL.revokeObjectURL(url)
+  window.setTimeout(() => {
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(url)
+  }, 1000)
 }
 
 const formatShortTimestamp = (value) => {
@@ -497,6 +503,7 @@ function App() {
   )
   const [templatePreview, setTemplatePreview] = useState(null)
   const [reportPreview, setReportPreview] = useState(null)
+  const [backupPreview, setBackupPreview] = useState(null)
   const [flyNonce, setFlyNonce] = useState(0)
   const [presetDraft, setPresetDraft] = useState('')
   const [bodyPickerMode, setBodyPickerMode] = useState(null)
@@ -1394,13 +1401,72 @@ function App() {
     })
   }
 
+  const createBackupPayload = () => ({
+    filename: `wellfed-backup-${currentDate}.json`,
+    generatedAt: new Date().toISOString(),
+    text: JSON.stringify(exportBackup(days, settings), null, 2),
+  })
+
+  const ensureBackupPreview = () => {
+    const payload = backupPreview ?? createBackupPayload()
+    setBackupPreview(payload)
+    return payload
+  }
+
   const exportJson = () => {
+    const payload = createBackupPayload()
+    setBackupPreview(payload)
     downloadTextFile(
-      `wellfed-backup-${currentDate}.json`,
-      JSON.stringify(exportBackup(days, settings), null, 2),
-      'application/json',
+      payload.filename,
+      payload.text,
+      'application/json;charset=utf-8',
     )
-    setToast('Full local backup downloaded.')
+    setToast('Backup prepared. If no file appears, use Copy or Share.')
+  }
+
+  const copyBackupJson = () => {
+    const payload = ensureBackupPreview()
+    copyText(
+      payload.text,
+      'Backup copied.',
+      'Copy is blocked. The backup text is visible below.',
+    )
+  }
+
+  const shareBackupJson = async () => {
+    const payload = ensureBackupPreview()
+
+    if (!navigator.share) {
+      setToast('Share is not available here. Use Copy backup text.')
+      return
+    }
+
+    try {
+      const backupFile =
+        typeof File !== 'undefined'
+          ? new File([payload.text], payload.filename, {
+              type: 'application/json',
+            })
+          : null
+
+      if (backupFile && navigator.canShare?.({ files: [backupFile] })) {
+        await navigator.share({
+          files: [backupFile],
+          title: 'WellFed backup',
+        })
+      } else {
+        await navigator.share({
+          text: payload.text,
+          title: 'WellFed backup',
+        })
+      }
+
+      setToast('Backup shared.')
+    } catch (error) {
+      if (error?.name !== 'AbortError') {
+        setToast('Share was blocked. Use Copy backup text.')
+      }
+    }
   }
 
   const exportCsv = () => {
@@ -1411,10 +1477,13 @@ function App() {
     )
   }
 
-  const importJson = async (file) => {
-    if (!file) return
+  const importBackupText = (text) => {
+    if (!text.trim()) {
+      setToast('Paste backup text first.')
+      return false
+    }
+
     try {
-      const text = await file.text()
       const backup = normalizeBackup(JSON.parse(text))
       const importedSettings = backup.settings.pantryBackfilledAt
         ? backup.settings
@@ -1428,8 +1497,20 @@ function App() {
       setSettings(importedSettings)
       setDays(backup.days)
       setToast('Backup restored. Undo copy saved.')
+      return true
     } catch (error) {
       setToast(error.message)
+      return false
+    }
+  }
+
+  const importJson = async (file) => {
+    if (!file) return
+    try {
+      const text = await file.text()
+      importBackupText(text)
+    } catch {
+      setToast('Could not read that backup file.')
     }
   }
 
@@ -1461,7 +1542,7 @@ function App() {
             alt=""
             aria-hidden="true"
             className="brand-mark"
-            src="/wellfed-icon.svg"
+            src={`${import.meta.env.BASE_URL}wellfed-icon.svg`}
           />
           <div>
             <h1>WellFed</h1>
@@ -1656,10 +1737,14 @@ function App() {
         )}
         {activeTab === 'settings' && (
           <SettingsView
+            backupPreview={backupPreview}
             backupSummary={backupSummary}
+            clearBackupPreview={() => setBackupPreview(null)}
+            copyBackupJson={copyBackupJson}
             copyTemplate={copyTemplate}
             exportCsv={exportCsv}
             exportJson={exportJson}
+            importBackupText={importBackupText}
             importJson={importJson}
             addCustomNutrient={addCustomNutrient}
             nutrients={nutrients}
@@ -1673,6 +1758,7 @@ function App() {
             settings={settings}
             restoreSafetyBackup={restoreSafetyBackup}
             restoreSafetySummary={restoreSafetySummary}
+            shareBackupJson={shareBackupJson}
             undoLastRestore={undoLastRestore}
             updateSettings={updateSettings}
           />
@@ -3106,10 +3192,14 @@ function SettingsAccordion({
 
 function SettingsView({
   addCustomNutrient,
+  backupPreview,
   backupSummary,
+  clearBackupPreview,
+  copyBackupJson,
   copyTemplate,
   exportCsv,
   exportJson,
+  importBackupText,
   importJson,
   nutrients,
   parserError,
@@ -3122,6 +3212,7 @@ function SettingsView({
   settings,
   restoreSafetyBackup,
   restoreSafetySummary,
+  shareBackupJson,
   undoLastRestore,
   updateSettings,
 }) {
@@ -3131,6 +3222,7 @@ function SettingsView({
     target: '',
     unit: 'mg',
   })
+  const [restoreDraft, setRestoreDraft] = useState('')
   const grouped = NUTRIENT_GROUPS.map((group) => ({
     ...group,
     nutrients: nutrients
@@ -3639,10 +3731,42 @@ function SettingsView({
             <button className="primary-action" onClick={exportJson} type="button">
               Download full backup
             </button>
+            <button onClick={copyBackupJson} type="button">
+              Copy backup text
+            </button>
+            <button onClick={shareBackupJson} type="button">
+              Share backup
+            </button>
             <button onClick={exportCsv} type="button">
               CSV spreadsheet export
             </button>
           </div>
+
+          {backupPreview && (
+            <div className="backup-text-panel">
+              <div>
+                <h3>Backup text</h3>
+                <p>
+                  If the download button is blocked, copy this text into Notes,
+                  email, or a file, then restore it on the other device.
+                </p>
+              </div>
+              <textarea
+                aria-label="WellFed JSON backup text"
+                readOnly
+                spellCheck="false"
+                value={backupPreview.text}
+              />
+              <div className="button-row">
+                <button onClick={copyBackupJson} type="button">
+                  Copy again
+                </button>
+                <button onClick={clearBackupPreview} type="button">
+                  Hide backup text
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="restore-safety-card">
             <div>
@@ -3670,6 +3794,28 @@ function SettingsView({
                 type="button"
               >
                 Undo last restore
+              </button>
+            </div>
+            <div className="restore-text-panel">
+              <label>
+                <span>Paste backup text</span>
+                <textarea
+                  onChange={(event) => setRestoreDraft(event.target.value)}
+                  placeholder="Paste the full WellFed JSON backup text here"
+                  spellCheck="false"
+                  value={restoreDraft}
+                />
+              </label>
+              <button
+                className="primary-action"
+                onClick={() => {
+                  if (importBackupText(restoreDraft)) {
+                    setRestoreDraft('')
+                  }
+                }}
+                type="button"
+              >
+                Restore pasted backup
               </button>
             </div>
             {restoreSafetyBackup && restoreSafetySummary && (

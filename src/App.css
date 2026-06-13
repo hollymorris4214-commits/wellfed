@@ -4692,6 +4692,8 @@ textarea {
 }
 
 .backup-safety-panel,
+.backup-text-panel,
+.restore-text-panel,
 .restore-safety-card {
   display: grid;
   gap: 14px;
@@ -4717,11 +4719,13 @@ textarea {
 }
 
 .backup-safety-copy h3,
+.backup-text-panel h3,
 .restore-safety-card h3 {
   margin: 0;
 }
 
 .backup-safety-copy p,
+.backup-text-panel p,
 .restore-safety-card p,
 .restore-undo-note {
   color: var(--muted);
@@ -4767,6 +4771,33 @@ textarea {
   background:
     linear-gradient(135deg, rgba(168, 185, 135, 0.13), transparent 58%),
     rgba(255, 252, 240, 0.48);
+}
+
+.backup-text-panel {
+  padding: 14px;
+  border: 1px solid rgba(87, 66, 50, 0.12);
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgba(125, 183, 199, 0.12), transparent 56%),
+    rgba(255, 252, 240, 0.5);
+}
+
+.backup-text-panel textarea {
+  min-height: 180px;
+  max-height: 320px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.restore-text-panel {
+  gap: 10px;
+}
+
+.restore-text-panel textarea {
+  min-height: 132px;
+  max-height: 260px;
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .restore-undo-note {
