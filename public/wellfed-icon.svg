@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="wellfed-logo-title">
+  <title id="wellfed-logo-title">WellFed mixing bowl logo</title>
+  <path d="M130 418c50 30 202 30 252 0" fill="none" stroke="#d9c3a3" stroke-width="30" stroke-linecap="round" opacity=".58"/>
+  <path d="M88 204c18 130 80 200 168 200s150-70 168-200H88Z" fill="#c8845b"/>
+  <path d="M113 236c20 85 72 141 143 141s123-56 143-141" fill="#dfa06f" opacity=".36"/>
+  <path d="M133 268l16 17 16-17 16 17 16-17 16 17 16-17 16 17 16-17 16 17 16-17 16 17 16-17 16 17 16-17 16 17 16-17" fill="none" stroke="#8d5e43" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity=".42"/>
+  <path d="M153 303c15 44 34 66 58 72" fill="none" stroke="#a76b4c" stroke-width="12" stroke-linecap="round" opacity=".42"/>
+  <path d="M359 303c-15 44-34 66-58 72" fill="none" stroke="#a76b4c" stroke-width="12" stroke-linecap="round" opacity=".42"/>
+  <path d="M207 294c6 37 18 63 34 80" fill="none" stroke="#f1bd88" stroke-width="10" stroke-linecap="round" opacity=".66"/>
+  <path d="M305 294c-6 37-18 63-34 80" fill="none" stroke="#f1bd88" stroke-width="10" stroke-linecap="round" opacity=".66"/>
+  <path d="M256 292v83" fill="none" stroke="#b97954" stroke-width="12" stroke-linecap="round" opacity=".5"/>
+  <path d="M142 320c16-19 40-19 56 0 16-19 40-19 56 0" fill="none" stroke="#8d5e43" stroke-width="10" stroke-linecap="round" opacity=".58"/>
+  <path d="M258 320c16-19 40-19 56 0 16-19 40-19 56 0" fill="none" stroke="#8d5e43" stroke-width="10" stroke-linecap="round" opacity=".58"/>
+  <path d="M170 355c22 18 45 18 66 0 20 18 42 18 62 0 21 18 44 18 66 0" fill="none" stroke="#8d5e43" stroke-width="10" stroke-linecap="round" opacity=".48"/>
+  <path d="M188 393c41 18 95 18 136 0" fill="none" stroke="#e6ae78" stroke-width="14" stroke-linecap="round" opacity=".85"/>
+  <path d="M172 405c50 16 118 16 168 0" fill="none" stroke="#4c3427" stroke-width="18" stroke-linecap="round"/>
+  <path d="M91 202c29-35 92-55 165-55s136 20 165 55c-34 22-92 34-165 34S125 224 91 202Z" fill="#fff4dc"/>
+  <path d="M194 162c29-7 70-8 113-4" fill="none" stroke="#fff8e8" stroke-width="10" stroke-linecap="round" opacity=".9"/>
+  <path d="M91 202c29-35 92-55 165-55s136 20 165 55" fill="none" stroke="#4c3427" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M235 82c34 36 67 82 99 136" fill="none" stroke="#4c3427" stroke-width="42" stroke-linecap="round"/>
+  <path d="M235 82c34 36 67 82 99 136" fill="none" stroke="#bc7c4f" stroke-width="28" stroke-linecap="round"/>
+  <path d="M257 103c28 32 51 65 70 104" fill="none" stroke="#dfb081" stroke-width="7" stroke-linecap="round" opacity=".62"/>
+  <path d="M94 205c37 26 94 40 162 40s125-14 162-40l-6 24c-39 27-94 40-156 40s-117-13-156-40Z" fill="#e6c79d"/>
+  <path d="M96 206c38 25 93 38 160 38s122-13 160-38" fill="none" stroke="#4c3427" stroke-width="10" stroke-linecap="round" opacity=".64"/>
+  <path d="M102 225c40 29 94 43 154 43s114-14 154-43" fill="none" stroke="#4c3427" stroke-width="9" stroke-linecap="round" opacity=".36"/>
+  <path d="M116 210c38 18 87 27 140 27s102-9 140-27" fill="none" stroke="#fff3d8" stroke-width="8" stroke-linecap="round" opacity=".88"/>
+  <path d="M88 204c18 130 80 200 168 200s150-70 168-200" fill="none" stroke="#4c3427" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
