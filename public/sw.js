@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wellfed-app-shell-v3'
+const CACHE_NAME = 'wellfed-app-shell-v4'
 const APP_SCOPE = self.registration.scope
 const APP_SHELL_URL = new URL('./', APP_SCOPE).toString()
 const CORE_ASSETS = [

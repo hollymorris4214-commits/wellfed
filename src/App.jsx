@@ -6,6 +6,7 @@ import {
   BRISTOL_TYPES,
   getBristolType,
 } from './data/bowel'
+import hollyTemporaryRestorePayload from './data/hollyTemporaryRestorePayload.json'
 import {
   CALORIE_STREAMS,
   CALORIE_STREAM_IDS,
@@ -161,6 +162,54 @@ const formatBackupTime = (timestamp) => {
     month: 'short',
     year: 'numeric',
   }).format(exportedAt)
+}
+
+const base64ToBytes = (value) =>
+  Uint8Array.from(atob(value), (character) => character.charCodeAt(0))
+
+const decryptTemporaryRestorePayload = async (payload, pin) => {
+  if (!pin.trim()) {
+    throw new Error('Enter the restore PIN first.')
+  }
+
+  const subtle = globalThis.crypto?.subtle
+  if (!subtle) {
+    throw new Error('Secure restore is not available in this browser.')
+  }
+
+  try {
+    const keyMaterial = await subtle.importKey(
+      'raw',
+      new TextEncoder().encode(pin.trim()),
+      'PBKDF2',
+      false,
+      ['deriveKey'],
+    )
+    const key = await subtle.deriveKey(
+      {
+        hash: 'SHA-256',
+        iterations: payload.iterations,
+        name: 'PBKDF2',
+        salt: base64ToBytes(payload.salt),
+      },
+      keyMaterial,
+      { length: 256, name: 'AES-GCM' },
+      false,
+      ['decrypt'],
+    )
+    const decrypted = await subtle.decrypt(
+      {
+        iv: base64ToBytes(payload.iv),
+        name: 'AES-GCM',
+      },
+      key,
+      base64ToBytes(payload.data),
+    )
+
+    return JSON.parse(new TextDecoder().decode(decrypted))
+  } catch {
+    throw new Error('Could not unlock that restore. Check the PIN.')
+  }
 }
 
 const formatAmount = (value, digits = 0) => {
@@ -563,6 +612,10 @@ function App() {
   const backupSummary = useMemo(
     () => createBackupSummary(days, settings),
     [days, settings],
+  )
+  const hollyTemporaryRestoreSummary = useMemo(
+    () => hollyTemporaryRestorePayload.summary,
+    [],
   )
   const restoreSafetySummary = useMemo(
     () =>
@@ -1477,14 +1530,12 @@ function App() {
     )
   }
 
-  const importBackupText = (text) => {
-    if (!text.trim()) {
-      setToast('Paste backup text first.')
-      return false
-    }
-
+  const restoreBackupObject = (
+    incomingBackup,
+    successMessage = 'Backup restored. Undo copy saved.',
+  ) => {
     try {
-      const backup = normalizeBackup(JSON.parse(text))
+      const backup = normalizeBackup(incomingBackup)
       const importedSettings = backup.settings.pantryBackfilledAt
         ? backup.settings
         : {
@@ -1496,8 +1547,38 @@ function App() {
       setRestoreSafetyBackup(safetyBackup)
       setSettings(importedSettings)
       setDays(backup.days)
-      setToast('Backup restored. Undo copy saved.')
+      setToast(successMessage)
       return true
+    } catch (error) {
+      setToast(error.message)
+      return false
+    }
+  }
+
+  const importBackupText = (text) => {
+    if (!text.trim()) {
+      setToast('Paste backup text first.')
+      return false
+    }
+
+    try {
+      return restoreBackupObject(JSON.parse(text))
+    } catch (error) {
+      setToast(error.message)
+      return false
+    }
+  }
+
+  const restoreHollyTemporaryBackup = async (pin) => {
+    try {
+      const backup = await decryptTemporaryRestorePayload(
+        hollyTemporaryRestorePayload,
+        pin,
+      )
+      return restoreBackupObject(
+        backup,
+        "Holly's data restored. Undo copy saved.",
+      )
     } catch (error) {
       setToast(error.message)
       return false
@@ -1744,6 +1825,7 @@ function App() {
             copyTemplate={copyTemplate}
             exportCsv={exportCsv}
             exportJson={exportJson}
+            hollyTemporaryRestoreSummary={hollyTemporaryRestoreSummary}
             importBackupText={importBackupText}
             importJson={importJson}
             addCustomNutrient={addCustomNutrient}
@@ -1758,6 +1840,7 @@ function App() {
             settings={settings}
             restoreSafetyBackup={restoreSafetyBackup}
             restoreSafetySummary={restoreSafetySummary}
+            restoreHollyTemporaryBackup={restoreHollyTemporaryBackup}
             shareBackupJson={shareBackupJson}
             undoLastRestore={undoLastRestore}
             updateSettings={updateSettings}
@@ -3199,6 +3282,7 @@ function SettingsView({
   copyTemplate,
   exportCsv,
   exportJson,
+  hollyTemporaryRestoreSummary,
   importBackupText,
   importJson,
   nutrients,
@@ -3212,6 +3296,7 @@ function SettingsView({
   settings,
   restoreSafetyBackup,
   restoreSafetySummary,
+  restoreHollyTemporaryBackup,
   shareBackupJson,
   undoLastRestore,
   updateSettings,
@@ -3223,6 +3308,8 @@ function SettingsView({
     unit: 'mg',
   })
   const [restoreDraft, setRestoreDraft] = useState('')
+  const [temporaryRestorePin, setTemporaryRestorePin] = useState('')
+  const [temporaryRestoreBusy, setTemporaryRestoreBusy] = useState(false)
   const grouped = NUTRIENT_GROUPS.map((group) => ({
     ...group,
     nutrients: nutrients
@@ -3767,6 +3854,67 @@ function SettingsView({
               </div>
             </div>
           )}
+
+          <div className="restore-holly-card">
+            <div>
+              <h3>Restore Holly&apos;s laptop data</h3>
+              <p>
+                Temporary transfer button for moving this laptop&apos;s WellFed
+                logs onto your phone. The embedded backup is encrypted and needs
+                the restore PIN before it can be opened.
+              </p>
+            </div>
+            <div className="backup-summary-grid compact" aria-label="Holly restore data summary">
+              <span>
+                <strong>{hollyTemporaryRestoreSummary.days}</strong>
+                <small>days</small>
+              </span>
+              <span>
+                <strong>{hollyTemporaryRestoreSummary.foodEvents}</strong>
+                <small>food events</small>
+              </span>
+              <span>
+                <strong>{hollyTemporaryRestoreSummary.bodyEvents}</strong>
+                <small>body notes</small>
+              </span>
+              <span>
+                <strong>{hollyTemporaryRestoreSummary.pantryItems}</strong>
+                <small>pantry</small>
+              </span>
+            </div>
+            <div className="restore-pin-row">
+              <label>
+                <span>Restore PIN</span>
+                <input
+                  autoComplete="one-time-code"
+                  inputMode="numeric"
+                  onChange={(event) => setTemporaryRestorePin(event.target.value)}
+                  placeholder="Enter PIN"
+                  type="password"
+                  value={temporaryRestorePin}
+                />
+              </label>
+              <button
+                className="primary-action"
+                disabled={temporaryRestoreBusy || !temporaryRestorePin.trim()}
+                onClick={async () => {
+                  setTemporaryRestoreBusy(true)
+                  const restored = await restoreHollyTemporaryBackup(
+                    temporaryRestorePin,
+                  )
+                  setTemporaryRestoreBusy(false)
+                  if (restored) {
+                    setTemporaryRestorePin('')
+                  }
+                }}
+                type="button"
+              >
+                {temporaryRestoreBusy
+                  ? 'Unlocking...'
+                  : 'Restore Holly\u2019s data'}
+              </button>
+            </div>
+          </div>
 
           <div className="restore-safety-card">
             <div>
