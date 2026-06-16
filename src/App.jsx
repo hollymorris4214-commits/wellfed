@@ -2,9 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import coffeeIconUrl from './assets/transparent_coffee_icon.svg'
 import {
+  BREATH_RELAXATION_OPTIONS,
   BRISTOL_TYPE_IDS,
   BRISTOL_TYPES,
+  EMPTYING_QUALITY_OPTIONS,
+  TOILET_TIME_OPTIONS,
+  YES_NO_OPTIONS,
+  bowelEventDetailText,
+  bowelMechanicsText,
+  bowelQualitySignalLine,
   getBristolType,
+  getBowelEventQuality,
+  summariseBowelQuality,
 } from './data/bowel'
 import {
   CALORIE_STREAMS,
@@ -1185,12 +1194,38 @@ function App() {
     )
   }
 
-  const logBowelEvent = (type) => {
+  const logBowelEvent = (details) => {
+    const payload =
+      typeof details === 'object' && details !== null ? details : { type: details }
+    const mechanics = Object.entries(payload.mechanics ?? {}).reduce(
+      (summary, [key, value]) => {
+        if (value !== '' && value !== null && value !== undefined) {
+          summary[key] = value
+        }
+        return summary
+      },
+      {},
+    )
     const bowelEvent = {
       id: createId(),
       date: currentDate,
       time: timeNow(),
-      type,
+      type: Number(payload.type),
+      ...(payload.strainScore !== undefined && payload.strainScore !== ''
+        ? { strainScore: Number(payload.strainScore) }
+        : {}),
+      ...(payload.painScore !== undefined && payload.painScore !== ''
+        ? { painScore: Number(payload.painScore) }
+        : {}),
+      ...(payload.emptyingQuality ? { emptyingQuality: payload.emptyingQuality } : {}),
+      ...(payload.toiletTime ? { toiletTime: payload.toiletTime } : {}),
+      ...(payload.repeatTrips === 'yes'
+        ? { repeatTrips: true }
+        : payload.repeatTrips === 'no'
+          ? { repeatTrips: false }
+          : {}),
+      ...(payload.notes?.trim() ? { notes: payload.notes.trim() } : {}),
+      ...(Object.keys(mechanics).length ? { mechanics } : {}),
       createdAt: new Date().toISOString(),
     }
     updateDay(currentDate, (day) => ({
@@ -1200,7 +1235,7 @@ function App() {
       ),
     }))
     setBodyPickerMode(null)
-    setToast(`Type ${type} logged.`)
+    setToast(`Type ${payload.type} appearance and evacuation note logged.`)
   }
 
   const updateBowelEventTime = (eventId, time) => {
@@ -4215,11 +4250,226 @@ function BristolTypeShape({ type }) {
   )
 }
 
+function ScoreAllocator({ help, label, onChange, value }) {
+  return (
+    <label className="score-allocator">
+      <span>
+        <strong>{label}</strong>
+        <em>{value}/10</em>
+      </span>
+      <input
+        aria-label={`${label} ${value} out of 10`}
+        max="10"
+        min="0"
+        onChange={(event) => onChange(Number(event.target.value))}
+        onInput={(event) => onChange(Number(event.currentTarget.value))}
+        step="1"
+        type="range"
+        value={value}
+      />
+      <small>{help}</small>
+    </label>
+  )
+}
+
+function ChoiceButtonGroup({ label, onChange, options, value }) {
+  return (
+    <fieldset className="choice-button-group">
+      <legend>{label}</legend>
+      <div>
+        {options.map((option) => (
+          <button
+            aria-pressed={value === option.id}
+            className={value === option.id ? 'selected' : ''}
+            key={option.id}
+            onClick={() => onChange(option.id)}
+            type="button"
+          >
+            <strong>{option.label}</strong>
+            {option.detail && <small>{option.detail}</small>}
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  )
+}
+
+function MechanicsChoiceGroup({ label, onChange, options, value }) {
+  return (
+    <ChoiceButtonGroup
+      label={label}
+      onChange={onChange}
+      options={options}
+      value={value}
+    />
+  )
+}
+
 function BristolPicker({ logBowelEvent, onClose }) {
+  const [selectedType, setSelectedType] = useState(null)
+  const [strainScore, setStrainScore] = useState(0)
+  const [painScore, setPainScore] = useState(0)
+  const [emptyingQuality, setEmptyingQuality] = useState('')
+  const [toiletTime, setToiletTime] = useState('')
+  const [repeatTrips, setRepeatTrips] = useState('')
+  const [notes, setNotes] = useState('')
+  const [mechanics, setMechanics] = useState({
+    footstool: '',
+    leanedForward: '',
+    breathRelaxation: '',
+    hardDry: '',
+    outletIssue: '',
+    tensionNotes: '',
+  })
+  const selectedMeta = selectedType ? getBristolType(selectedType) : null
+  const canSave = selectedType && emptyingQuality && toiletTime && repeatTrips
+  const updateMechanics = (key, value) =>
+    setMechanics((current) => ({ ...current, [key]: value }))
+  const saveEvent = () => {
+    if (!canSave) return
+    logBowelEvent({
+      type: selectedType,
+      strainScore,
+      painScore,
+      emptyingQuality,
+      toiletTime,
+      repeatTrips,
+      notes,
+      mechanics,
+    })
+  }
+
+  if (selectedType) {
+    return (
+      <div className="bristol-picker bowel-detail-picker">
+        <div className="picker-header">
+          <strong>Evacuation details</strong>
+          <button onClick={() => setSelectedType(null)} type="button">
+            Back
+          </button>
+        </div>
+        <div className={`selected-bristol-card ${selectedMeta.className}`}>
+          <BristolTypeShape type={selectedType} />
+          <span>
+            <strong>Appearance: Type {selectedType}</strong>
+            <small>{selectedMeta.label}</small>
+          </span>
+        </div>
+        <div className="bowel-detail-form">
+          <ScoreAllocator
+            help="0 = no strain, 10 = extreme strain."
+            label="Strain"
+            onChange={setStrainScore}
+            value={strainScore}
+          />
+          <ScoreAllocator
+            help="0 = no pain, 10 = severe pain."
+            label="Pain"
+            onChange={setPainScore}
+            value={painScore}
+          />
+          <ChoiceButtonGroup
+            label="Emptying quality"
+            onChange={setEmptyingQuality}
+            options={EMPTYING_QUALITY_OPTIONS}
+            value={emptyingQuality}
+          />
+          <ChoiceButtonGroup
+            label="Time on toilet"
+            onChange={setToiletTime}
+            options={TOILET_TIME_OPTIONS}
+            value={toiletTime}
+          />
+          <ChoiceButtonGroup
+            label="Repeat trips"
+            onChange={setRepeatTrips}
+            options={YES_NO_OPTIONS}
+            value={repeatTrips}
+          />
+          {strainScore > 5 && (
+            <div className="mechanics-context-panel">
+              <p className="eyebrow">Mechanics context</p>
+              <div className="mechanics-grid">
+                <MechanicsChoiceGroup
+                  label="Used footstool / knees elevated"
+                  onChange={(value) => updateMechanics('footstool', value)}
+                  options={YES_NO_OPTIONS}
+                  value={mechanics.footstool}
+                />
+                <MechanicsChoiceGroup
+                  label="Leaned forward"
+                  onChange={(value) => updateMechanics('leanedForward', value)}
+                  options={YES_NO_OPTIONS}
+                  value={mechanics.leanedForward}
+                />
+                <MechanicsChoiceGroup
+                  label="Breath/relaxation helped"
+                  onChange={(value) => updateMechanics('breathRelaxation', value)}
+                  options={BREATH_RELAXATION_OPTIONS}
+                  value={mechanics.breathRelaxation}
+                />
+                <MechanicsChoiceGroup
+                  label="Felt hard/dry"
+                  onChange={(value) => updateMechanics('hardDry', value)}
+                  options={YES_NO_OPTIONS}
+                  value={mechanics.hardDry}
+                />
+                <MechanicsChoiceGroup
+                  label="Outlet/coordination feel despite soft stool"
+                  onChange={(value) => updateMechanics('outletIssue', value)}
+                  options={YES_NO_OPTIONS}
+                  value={mechanics.outletIssue}
+                />
+              </div>
+              <label className="mechanics-notes">
+                <span>Pelvic, hip, jaw, or body tension noticed</span>
+                <input
+                  onChange={(event) =>
+                    updateMechanics('tensionNotes', event.target.value)
+                  }
+                  placeholder="Optional"
+                  type="text"
+                  value={mechanics.tensionNotes}
+                />
+              </label>
+            </div>
+          )}
+          <label className="bowel-notes-field">
+            <span>Notes optional</span>
+            <input
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Context, timing, anything useful..."
+              type="text"
+              value={notes}
+            />
+          </label>
+        </div>
+        <div className="bowel-detail-actions">
+          <button onClick={onClose} type="button">
+            Close
+          </button>
+          <button
+            className="primary-action"
+            disabled={!canSave}
+            onClick={saveEvent}
+            type="button"
+          >
+            Save bowel note
+          </button>
+        </div>
+        {!canSave && (
+          <p className="quiet">
+            Choose emptying, time, and repeat trips to save the evacuation note.
+          </p>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="bristol-picker">
       <div className="picker-header">
-        <strong>Bristol type</strong>
+        <strong>Bristol appearance</strong>
         <button onClick={onClose} type="button">
           Close
         </button>
@@ -4229,7 +4479,7 @@ function BristolPicker({ logBowelEvent, onClose }) {
           <button
             className={`bristol-option ${type.className}`}
             key={type.id}
-            onClick={() => logBowelEvent(type.id)}
+            onClick={() => setSelectedType(type.id)}
             type="button"
           >
             <BristolTypeShape type={type.id} />
@@ -4557,10 +4807,16 @@ function BowelTodayTimeline({ deleteBowelEvent, events, updateBowelEventTime }) 
     <div className="bowel-timeline" aria-label="Bowel movement timeline">
       {events.map((event) => {
         const meta = getBristolType(event.type)
+        const quality = getBowelEventQuality(event)
+        const detailText = bowelEventDetailText(event)
+        const mechanicsText = bowelMechanicsText(event)
         return (
-          <div className={`bowel-chip ${meta.className}`} key={event.id}>
+          <div
+            className={`bowel-chip ${meta.className} quality-${quality.id}`}
+            key={event.id}
+          >
             <BristolTypeShape type={event.type} />
-            <span>
+            <span className="bowel-chip-copy">
               <input
                 aria-label={`Time for Type ${event.type}`}
                 className="time-inline-input"
@@ -4573,7 +4829,13 @@ function BowelTodayTimeline({ deleteBowelEvent, events, updateBowelEventTime }) 
                 type="time"
                 value={event.time}
               />
-              <small>Type {event.type}</small>
+              <small>
+                <strong>Type {event.type}</strong>
+                <em>{quality.label}</em>
+              </small>
+              <small>{detailText}</small>
+              {mechanicsText && <small>{mechanicsText}</small>}
+              {event.notes && <small>{event.notes}</small>}
             </span>
             <button
               aria-label={`Delete Type ${event.type} at ${event.time}`}
@@ -4644,7 +4906,7 @@ function BowelDistributionBars({ distribution }) {
   const max = Math.max(1, ...BRISTOL_TYPE_IDS.map((id) => distribution[id] ?? 0))
 
   return (
-    <div className="bowel-distribution" aria-label="Bristol type distribution">
+    <div className="bowel-distribution" aria-label="Bristol appearance distribution">
       {BRISTOL_TYPE_IDS.map((id) => {
         const count = distribution[id] ?? 0
         const meta = getBristolType(id)
@@ -4743,6 +5005,7 @@ function BowelWeekPanel({ week }) {
     ? getBristolType(week.mostCommonBowelType)
     : null
   const bodySummary = summariseBodyEvents(week.bodyEvents)
+  const bowelQualitySummary = summariseBowelQuality(week.bowelEvents)
 
   return (
     <div className="bowel-week-content">
@@ -4750,8 +5013,16 @@ function BowelWeekPanel({ week }) {
         <strong>{week.bowelEvents.length}</strong>
         <span>
           total, {week.daysWithBowelEntries} / 7 days
-          {mostCommon ? `, mode T${mostCommon.id}` : ''}
+          {mostCommon ? `, appearance mode T${mostCommon.id}` : ''}
         </span>
+      </div>
+      <p className="bowel-quality-line">
+        {bowelQualitySignalLine(week.bowelEvents)}
+      </p>
+      <div className="body-summary-strip">
+        <span>{bowelQualitySummary.detailsLogged} with evacuation detail</span>
+        <span>{bowelQualitySummary.incompleteEvents} incomplete signals</span>
+        <span>{bowelQualitySummary.repeatTripEvents} repeat-trip notes</span>
       </div>
       <div className="bowel-week-strip" aria-label="Seven day bowel pattern">
         {week.daily.map((item) => (
@@ -4761,11 +5032,12 @@ function BowelWeekPanel({ week }) {
               {item.totals.bowelEvents.length ? (
                 item.totals.bowelEvents.map((event) => {
                   const meta = getBristolType(event.type)
+                  const quality = getBowelEventQuality(event)
                   return (
                     <span
-                      className={`bowel-dot ${meta.className}`}
+                      className={`bowel-dot ${meta.className} quality-${quality.id}`}
                       key={event.id}
-                      title={`${event.time} Type ${event.type}`}
+                      title={`${event.time} Type ${event.type}: ${quality.label}`}
                     >
                       {event.type}
                     </span>
@@ -4802,6 +5074,7 @@ function BowelMonthPanel({ days, month }) {
     ? getBristolType(month.mostCommonBowelType)
     : null
   const bodySummary = summariseBodyEvents(month.bodyEvents)
+  const bowelQualitySummary = summariseBowelQuality(month.bowelEvents)
 
   return (
     <div className="bowel-month-content">
@@ -4816,12 +5089,20 @@ function BowelMonthPanel({ days, month }) {
         </div>
         <div>
           <strong>{mostCommon ? `T${mostCommon.id}` : '-'}</strong>
-          <span>mode</span>
+          <span>appearance</span>
         </div>
         <div>
           <strong>{bodySummary.glp1Symptoms.length}</strong>
           <span>GLP-1 notes</span>
         </div>
+      </div>
+      <p className="bowel-quality-line">
+        {bowelQualitySignalLine(month.bowelEvents)}
+      </p>
+      <div className="body-summary-strip">
+        <span>{bowelQualitySummary.detailsLogged} with evacuation detail</span>
+        <span>{bowelQualitySummary.incompleteEvents} incomplete signals</span>
+        <span>{bowelQualitySummary.repeatTripEvents} repeat-trip notes</span>
       </div>
       {bodySummary.cravings.length > 0 && (
         <div className="craving-chip-list">
@@ -4839,11 +5120,12 @@ function BowelMonthPanel({ days, month }) {
               <div>
                 {events.slice(0, 3).map((event) => {
                   const meta = getBristolType(event.type)
+                  const quality = getBowelEventQuality(event)
                   return (
                     <span
-                      className={`bowel-dot ${meta.className}`}
+                      className={`bowel-dot ${meta.className} quality-${quality.id}`}
                       key={event.id}
-                      title={`${formatDate(date, { weekday: null })} ${event.time} Type ${event.type}`}
+                      title={`${formatDate(date, { weekday: null })} ${event.time} Type ${event.type}: ${quality.label}`}
                     >
                       {event.type}
                     </span>

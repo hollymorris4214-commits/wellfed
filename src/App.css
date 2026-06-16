@@ -3144,6 +3144,150 @@ textarea {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38);
 }
 
+.bowel-detail-picker {
+  gap: 14px;
+}
+
+.selected-bristol-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 18px;
+  background: var(--bowel-soft);
+  box-shadow: inset 0 0 0 1px rgba(87, 66, 50, 0.08);
+}
+
+.selected-bristol-card > span {
+  display: grid;
+  gap: 2px;
+}
+
+.selected-bristol-card small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.bowel-detail-form {
+  display: grid;
+  gap: 12px;
+}
+
+.score-allocator {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 18px;
+  background: rgba(255, 252, 240, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(87, 66, 50, 0.08);
+}
+
+.score-allocator > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.score-allocator em {
+  color: var(--terracotta);
+  font-style: normal;
+  font-weight: 950;
+}
+
+.score-allocator input[type='range'] {
+  width: 100%;
+  min-height: 30px;
+  padding: 0;
+  accent-color: var(--terracotta);
+  background: transparent;
+  box-shadow: none;
+}
+
+.score-allocator small,
+.choice-button-group small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.choice-button-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.choice-button-group legend {
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 950;
+}
+
+.choice-button-group > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 8px;
+}
+
+.choice-button-group button {
+  display: grid;
+  min-height: 52px;
+  align-content: center;
+  gap: 2px;
+  padding: 9px 11px;
+  text-align: left;
+}
+
+.choice-button-group button.selected {
+  color: #fff8e4;
+  background: var(--terracotta);
+}
+
+.choice-button-group button.selected small {
+  color: rgba(255, 248, 228, 0.82);
+}
+
+.mechanics-context-panel {
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgba(168, 185, 135, 0.18), rgba(255, 252, 240, 0.64)),
+    var(--paper);
+  box-shadow: inset 0 0 0 1px rgba(87, 66, 50, 0.08);
+}
+
+.mechanics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.mechanics-notes,
+.bowel-notes-field {
+  display: grid;
+  gap: 6px;
+}
+
+.mechanics-notes span,
+.bowel-notes-field span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.bowel-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .body-event-picker {
   display: grid;
   gap: 10px;
@@ -3550,14 +3694,24 @@ textarea {
 
 .bowel-chip {
   display: flex;
-  min-width: 150px;
-  align-items: center;
+  min-width: min(280px, 84vw);
+  align-items: flex-start;
   gap: 9px;
   padding: 10px;
   border: 0;
   border-radius: 18px;
   background: var(--bowel-soft);
   scroll-snap-align: start;
+}
+
+.bowel-chip.quality-mixed,
+.bowel-chip.quality-watch-mechanics {
+  box-shadow: inset 0 0 0 1px rgba(215, 174, 87, 0.36);
+}
+
+.bowel-chip.quality-constipation,
+.bowel-chip.quality-loose {
+  box-shadow: inset 0 0 0 1px rgba(169, 90, 94, 0.26);
 }
 
 .body-event-chip {
@@ -3633,9 +3787,10 @@ textarea {
   transform-origin: center;
 }
 
-.bowel-chip > span:nth-child(2) {
+.bowel-chip > span:nth-child(2),
+.bowel-chip-copy {
   display: grid;
-  gap: 1px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -3657,6 +3812,18 @@ textarea {
 .bowel-chip small {
   color: var(--muted);
   font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.bowel-chip small strong {
+  color: var(--ink);
+  margin-right: 6px;
+}
+
+.bowel-chip small em {
+  color: var(--terracotta);
+  font-style: normal;
 }
 
 .body-summary-strip,
@@ -3709,6 +3876,17 @@ textarea {
   color: var(--muted);
   font-size: 0.82rem;
   font-weight: 800;
+}
+
+.bowel-quality-line {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 18px;
+  color: var(--ink);
+  background: rgba(255, 252, 240, 0.7);
+  box-shadow: inset 0 0 0 1px rgba(87, 66, 50, 0.08);
+  font-weight: 850;
+  line-height: 1.35;
 }
 
 .bowel-week-strip {
@@ -5563,6 +5741,20 @@ textarea {
   .score-option-grid,
   .craving-option-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .choice-button-group > div,
+  .mechanics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bowel-detail-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .bowel-chip {
+    min-width: min(286px, 88vw);
   }
 
   .intake-grid {

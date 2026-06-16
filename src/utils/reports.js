@@ -1,7 +1,12 @@
 import {
   BRISTOL_TYPE_IDS,
+  bowelEventDetailText,
+  bowelMechanicsText,
+  bowelQualitySignalLine,
+  bowelTrendInsightLines,
   createBowelDistribution,
   getBristolType,
+  getBowelEventQuality,
   getMostCommonBowelType,
 } from '../data/bowel'
 import {
@@ -634,7 +639,14 @@ const nutrientLines = (
 
 const bowelEventLines = (events = []) =>
   sortBowelEvents(events)
-    .map((event) => `- ${event.time} Type ${event.type}`)
+    .map((event) => {
+      const quality = getBowelEventQuality(event)
+      const details = bowelEventDetailText(event)
+      const mechanics = bowelMechanicsText(event)
+      return `- ${event.time} Type ${event.type} appearance; ${quality.label}; ${details}${
+        mechanics ? `; mechanics: ${mechanics}` : ''
+      }${event.notes ? `; notes: ${event.notes}` : ''}`
+    })
     .join('\n')
 
 const bodyEventLabel = (event) => {
@@ -1038,16 +1050,9 @@ const bowelSignalLine = (distribution, total, events = []) => {
   if (hasMixedDryLooseBowelSignal(events)) {
     return `Mixed bowel pattern: Type 1 and Type 5 appeared close together (${distribution[1] ?? 0} Type 1, ${
       distribution[5] ?? 0
-    } Type 5 out of ${total} events). Treat as a mixed transit signal rather than simple constipation or simple looseness.`
+    } Type 5 out of ${total} events). Treat as a mixed transit signal rather than simple constipation or simple looseness. ${bowelQualitySignalLine(events)}`
   }
-  const dominant = BRISTOL_TYPE_IDS.reduce((best, id) => {
-    const count = distribution[id] ?? 0
-    return count > (distribution[best] ?? 0) ? id : best
-  }, BRISTOL_TYPE_IDS[0])
-  const count = distribution[dominant] ?? 0
-  const label = getBristolType(dominant)?.label ?? 'unknown'
-  const dominance = count / total >= 0.5 ? 'dominant pattern' : 'most common'
-  return `Type ${dominant} ${dominance}: ${count} out of ${total} events (${label}).`
+  return bowelQualitySignalLine(events)
 }
 
 const periodEvents = (items) =>
@@ -1092,6 +1097,7 @@ export const buildDailyReport = (day, settings, days = null) => {
     )
     .join('\n')
   const bowelLines = bowelEventLines(totals.bowelEvents)
+  const bowelTrendLines = bowelTrendInsightLines(totals.bowelEvents)
   const bodyLines = bodyEventLines(totals.bodyEvents)
 
   return `# WellFed Daily Report
@@ -1139,6 +1145,8 @@ Bowel signal: ${bowelSignalLine(
     totals.bowelEvents.length,
     totals.bowelEvents,
   )}
+Bowel trend notes:
+${bowelTrendLines.length ? bowelTrendLines.map((line) => `- ${line}`).join('\n') : '- Not enough evacuation-detail pattern yet.'}
 ${bowelLines || '- No bowel events logged.'}
 ${bodyLines || '- No hunger or craving signals logged.'}
 ${glp1DailySection(day, totals, settings, days)}
@@ -1196,6 +1204,7 @@ export const buildWeeklyReport = (days, settings, dateKey) => {
     ? getBristolType(week.mostCommonBowelType)
     : null
   const bodySummary = bodyEventSummary(week.bodyEvents)
+  const bowelTrendLines = bowelTrendInsightLines(week.bowelEvents)
   const glp1ProteinValues = week.toDateLoggedDays.map(
     (item) => item.totals.nutrients.proteinG,
   )
@@ -1217,8 +1226,8 @@ Unique plant list: ${plantListLine(week.uniquePlants)}
 Bowel events: ${week.bowelEvents.length} total, ${
     week.daysWithBowelEntries
   } days with entries
-Bowel type distribution: ${bowelDistributionLine(week.bowelDistribution)}
-Most common bowel type: ${
+Bristol appearance distribution: ${bowelDistributionLine(week.bowelDistribution)}
+Most common Bristol appearance: ${
     mostCommon ? `Type ${mostCommon.id} (${mostCommon.label})` : 'not logged'
   }
 Body events: hunger ${bodySummary.counts.hunger}, craving signals ${bodySummary.counts.craving}, GLP-1 notes ${bodySummary.counts.glp1Symptom}
@@ -1270,6 +1279,8 @@ ${plantCategoryLines(plantCategories)}
 
 ## Bowel Signal
 ${bowelSignalLine(week.bowelDistribution, week.bowelEvents.length, week.bowelEvents)}
+Trend notes:
+${bowelTrendLines.length ? bowelTrendLines.map((line) => `- ${line}`).join('\n') : '- Not enough evacuation-detail pattern yet.'}
 ${glp1PeriodSection({
     bodyEvents: week.bodyEvents,
     bowelEvents: week.bowelEvents,
@@ -1331,6 +1342,7 @@ export const buildMonthlyReport = (days, settings, monthKey) => {
     ? getBristolType(month.mostCommonBowelType)
     : null
   const bodySummary = bodyEventSummary(month.bodyEvents)
+  const bowelTrendLines = bowelTrendInsightLines(month.bowelEvents)
   const loggedMonthItems = month.dateKeys
     .filter((date) => date <= currentDate && (days[date]?.events ?? []).length)
     .map((date) => ({
@@ -1356,8 +1368,8 @@ Unique plant list: ${plantListLine(month.uniquePlants)}
 Bowel events: ${month.bowelEvents.length} total, ${
     month.daysWithBowelEntries
   } days with entries
-Bowel type distribution: ${bowelDistributionLine(month.bowelDistribution)}
-Most common bowel type: ${
+Bristol appearance distribution: ${bowelDistributionLine(month.bowelDistribution)}
+Most common Bristol appearance: ${
     mostCommon ? `Type ${mostCommon.id} (${mostCommon.label})` : 'not logged'
   }
 Body events: hunger ${bodySummary.counts.hunger}, craving signals ${bodySummary.counts.craving}, GLP-1 notes ${bodySummary.counts.glp1Symptom}
@@ -1394,6 +1406,8 @@ ${bowelSignalLine(
     month.bowelEvents.length,
     month.bowelEvents,
   )}
+Trend notes:
+${bowelTrendLines.length ? bowelTrendLines.map((line) => `- ${line}`).join('\n') : '- Not enough evacuation-detail pattern yet.'}
 ${glp1PeriodSection({
     bodyEvents: month.bodyEvents,
     bowelEvents: month.bowelEvents,
@@ -1506,14 +1520,51 @@ export const buildCsvExport = (days, settings) => {
     )
     .sort((a, b) => `${a[0]}${a[1]}`.localeCompare(`${b[0]}${b[1]}`))
 
-  const bowelHeaders = ['date', 'time', 'bristolType']
+  const bowelHeaders = [
+    'date',
+    'time',
+    'bristolType',
+    'bowelQualitySignal',
+    'strainScore',
+    'painScore',
+    'emptyingQuality',
+    'toiletTime',
+    'repeatTrips',
+    'notes',
+    'usedFootstool',
+    'leanedForward',
+    'breathRelaxationHelped',
+    'feltHardDry',
+    'feltOutletIssue',
+    'tensionNotes',
+  ]
   const bowelRows = Object.values(days)
     .flatMap((day) =>
-      (day.bowelEvents ?? []).map((event) => [
-        event.date ?? day.date,
-        event.time,
-        event.type,
-      ]),
+      (day.bowelEvents ?? []).map((event) => {
+        const quality = getBowelEventQuality(event)
+        return [
+          event.date ?? day.date,
+          event.time,
+          event.type,
+          quality.label,
+          event.strainScore ?? '',
+          event.painScore ?? '',
+          event.emptyingQuality ?? '',
+          event.toiletTime ?? '',
+          event.repeatTrips === true
+            ? 'yes'
+            : event.repeatTrips === false
+              ? 'no'
+              : '',
+          event.notes ?? '',
+          event.mechanics?.footstool ?? '',
+          event.mechanics?.leanedForward ?? '',
+          event.mechanics?.breathRelaxation ?? '',
+          event.mechanics?.hardDry ?? '',
+          event.mechanics?.outletIssue ?? '',
+          event.mechanics?.tensionNotes ?? '',
+        ]
+      }),
     )
     .sort((a, b) => `${a[0]}${a[1]}`.localeCompare(`${b[0]}${b[1]}`))
 
