@@ -16,6 +16,18 @@ import {
   getNutrients,
 } from '../data/nutrients'
 import {
+  PCOS_DIGESTION_ISSUES,
+  PCOS_INSULIN_RESISTANCE_OPTIONS,
+  PCOS_PRIORITIES,
+  PCOS_STRESS_PATTERNS,
+  pcosCheckinLine,
+  pcosDayInsightLines,
+  pcosDaySignalLines,
+  pcosEventContextLine,
+  pcosPeriodInsightLines,
+  pcosPeriodSignalLines,
+} from '../data/pcos'
+import {
   formatDate,
   formatMonth,
   formatWeekRange,
@@ -657,6 +669,9 @@ const bodyEventLabel = (event) => {
   if (event.kind === 'glp1Symptom') {
     return `GLP-1 tolerability: ${event.label ?? event.symptom} ${event.severity}`
   }
+  if (event.kind === 'pcosContext') {
+    return `PCOS context: ${pcosCheckinLine(event)}`
+  }
   return event.kind
 }
 
@@ -726,6 +741,7 @@ const bodyEventSummary = (events = []) => {
   const foodNoise = events.filter((event) => event.kind === 'foodNoise')
   const cravings = events.filter((event) => event.kind === 'craving')
   const glp1Symptoms = events.filter((event) => event.kind === 'glp1Symptom')
+  const pcosContexts = events.filter((event) => event.kind === 'pcosContext')
   const avg = (items) =>
     items.length
       ? round(
@@ -739,11 +755,13 @@ const bodyEventSummary = (events = []) => {
     foodNoiseAverage: avg(foodNoise),
     cravings: [...new Set(cravings.map((event) => event.label).filter(Boolean))],
     glp1Symptoms,
+    pcosContexts,
     counts: {
       hunger: hunger.length,
       foodNoise: foodNoise.length,
       craving: cravings.length,
       glp1Symptom: glp1Symptoms.length,
+      pcosContext: pcosContexts.length,
     },
   }
 }
@@ -968,6 +986,84 @@ ${glp1ReportFlags({
   })}`
 }
 
+const pcosEnabled = (settings) => Boolean(settings.pcos?.enabled)
+
+const pcosOptionLabel = (options, id, fallback = 'not set') =>
+  options.find((option) => option.id === id)?.label ?? fallback
+
+const pcosProfileLines = (settings) => {
+  const profile = settings.pcos ?? {}
+  const priorities = (profile.priorities ?? [])
+    .map((id) => pcosOptionLabel(PCOS_PRIORITIES, id, id))
+    .join(', ')
+  return `Priorities: ${priorities || 'not set'}
+Known insulin resistance: ${pcosOptionLabel(
+    PCOS_INSULIN_RESISTANCE_OPTIONS,
+    profile.insulinResistance,
+  )}
+Cycle tracked elsewhere: ${profile.cycleTrackingElsewhere === 'no' ? 'no' : 'yes'}
+Typical digestion context: ${pcosOptionLabel(
+    PCOS_DIGESTION_ISSUES,
+    profile.digestionIssue,
+  )}
+Typical stress-eating context: ${pcosOptionLabel(
+    PCOS_STRESS_PATTERNS,
+    profile.stressEatingPattern,
+  )}
+Medicines/supplements context: ${
+    profile.medicationsSupplements || 'not provided'
+  }`
+}
+
+const pcosFoodContextLines = (events = []) => {
+  const lines = sortBodyEvents(events)
+    .map((event) => {
+      const context = pcosEventContextLine(event)
+      return context ? `- ${event.time} ${event.name}: ${context}` : null
+    })
+    .filter(Boolean)
+  return lines.length ? lines.join('\n') : '- No optional food context logged.'
+}
+
+const pcosCheckinLines = (bodyEvents = []) => {
+  const lines = sortBodyEvents(bodyEvents)
+    .filter((event) => event.kind === 'pcosContext')
+    .map((event) => `- ${event.date ?? ''} ${event.time} ${pcosCheckinLine(event)}`.trim())
+  return lines.length ? lines.join('\n') : '- No optional PCOS context notes logged.'
+}
+
+const pcosDailySection = (day, totals, settings) => {
+  if (!pcosEnabled(settings)) return ''
+  return `
+## PCOS Lens
+Scope: coaching context only. No diagnosis, ovulation prediction, fertility scoring, or food morality.
+Profile:
+${pcosProfileLines(settings)}
+Automatic steadiness signals:
+${pcosDaySignalLines(day.events ?? []).map((line) => `- ${line}`).join('\n')}
+Interpretive notes:
+${pcosDayInsightLines(day.events ?? []).map((line) => `- ${line}`).join('\n')}
+Optional food context:
+${pcosFoodContextLines(day.events ?? [])}
+Cycle/symptom context:
+${pcosCheckinLines(totals.bodyEvents)}`
+}
+
+const pcosPeriodSection = ({ bodyEvents, dayRecords, label, settings }) => {
+  if (!pcosEnabled(settings)) return ''
+  return `
+## PCOS Lens
+Scope: coaching context only. No diagnosis, fertility prediction, scoring, or carbohydrate restriction.
+Profile:
+${pcosProfileLines(settings)}
+${label} automatic signals:
+${pcosPeriodSignalLines(dayRecords).map((line) => `- ${line}`).join('\n')}
+Pattern interpretation:
+${pcosPeriodInsightLines(dayRecords).map((line) => `- ${line}`).join('\n')}
+Optional PCOS context notes:
+${pcosCheckinLines(bodyEvents)}`
+}
+
 const bowelDistributionLine = (distribution) =>
   BRISTOL_TYPE_IDS.map((id) => `T${id}:${distribution[id] ?? 0}`).join(' ')
 
@@ -1093,12 +1189,19 @@ export const buildDailyReport = (day, settings, days = null) => {
           Number(event.alcoholUnits)
             ? `, ${alcoholUnitsText(event.alcoholUnits)} alcohol`
             : ''
-        }, ${round(event.nutrients.caloriesKcal)} kcal energy context)`,
+        }, ${round(event.nutrients.caloriesKcal)} kcal energy context)${
+          pcosEnabled(settings) && pcosEventContextLine(event)
+            ? ` [PCOS context: ${pcosEventContextLine(event)}]`
+            : ''
+        }`,
     )
     .join('\n')
   const bowelLines = bowelEventLines(totals.bowelEvents)
   const bowelTrendLines = bowelTrendInsightLines(totals.bowelEvents)
-  const bodyLines = bodyEventLines(totals.bodyEvents)
+  const reportBodyEvents = pcosEnabled(settings)
+    ? totals.bodyEvents
+    : totals.bodyEvents.filter((event) => event.kind !== 'pcosContext')
+  const bodyLines = bodyEventLines(reportBodyEvents)
 
   return `# WellFed Daily Report
 
@@ -1138,6 +1241,7 @@ Hunger events timeline:
 ${hungerEventLines(totals.bodyEvents)}
 Inferred satiety patterns:
 ${inferredSatietyLines(day.events ?? [], totals.bodyEvents)}
+${pcosDailySection(day, totals, settings)}
 
 ## Body Events
 Bowel signal: ${bowelSignalLine(
@@ -1203,7 +1307,10 @@ export const buildWeeklyReport = (days, settings, dateKey) => {
   const mostCommon = week.mostCommonBowelType
     ? getBristolType(week.mostCommonBowelType)
     : null
-  const bodySummary = bodyEventSummary(week.bodyEvents)
+  const reportBodyEvents = pcosEnabled(settings)
+    ? week.bodyEvents
+    : week.bodyEvents.filter((event) => event.kind !== 'pcosContext')
+  const bodySummary = bodyEventSummary(reportBodyEvents)
   const bowelTrendLines = bowelTrendInsightLines(week.bowelEvents)
   const glp1ProteinValues = week.toDateLoggedDays.map(
     (item) => item.totals.nutrients.proteinG,
@@ -1230,7 +1337,7 @@ Bristol appearance distribution: ${bowelDistributionLine(week.bowelDistribution)
 Most common Bristol appearance: ${
     mostCommon ? `Type ${mostCommon.id} (${mostCommon.label})` : 'not logged'
   }
-Body events: hunger ${bodySummary.counts.hunger}, craving signals ${bodySummary.counts.craving}, GLP-1 notes ${bodySummary.counts.glp1Symptom}
+Body events: hunger ${bodySummary.counts.hunger}, craving signals ${bodySummary.counts.craving}, GLP-1 notes ${bodySummary.counts.glp1Symptom}${pcosEnabled(settings) ? `, PCOS context notes ${bodySummary.counts.pcosContext}` : ''}
 Average hunger: ${
     bodySummary.hungerAverage === null
       ? 'not logged'
@@ -1276,6 +1383,12 @@ Source confidence note: WellFed can flag partial, future, and no-data days. It d
 
 ## Plant Diversity Split
 ${plantCategoryLines(plantCategories)}
+${pcosPeriodSection({
+    bodyEvents: week.bodyEvents,
+    dayRecords: week.daily.map((item) => item.day).filter(Boolean),
+    label: 'Week-to-date',
+    settings,
+  })}
 
 ## Bowel Signal
 ${bowelSignalLine(week.bowelDistribution, week.bowelEvents.length, week.bowelEvents)}
@@ -1341,7 +1454,10 @@ export const buildMonthlyReport = (days, settings, monthKey) => {
   const mostCommon = month.mostCommonBowelType
     ? getBristolType(month.mostCommonBowelType)
     : null
-  const bodySummary = bodyEventSummary(month.bodyEvents)
+  const reportBodyEvents = pcosEnabled(settings)
+    ? month.bodyEvents
+    : month.bodyEvents.filter((event) => event.kind !== 'pcosContext')
+  const bodySummary = bodyEventSummary(reportBodyEvents)
   const bowelTrendLines = bowelTrendInsightLines(month.bowelEvents)
   const loggedMonthItems = month.dateKeys
     .filter((date) => date <= currentDate && (days[date]?.events ?? []).length)
@@ -1372,7 +1488,7 @@ Bristol appearance distribution: ${bowelDistributionLine(month.bowelDistribution
 Most common Bristol appearance: ${
     mostCommon ? `Type ${mostCommon.id} (${mostCommon.label})` : 'not logged'
   }
-Body events: hunger ${bodySummary.counts.hunger}, craving signals ${bodySummary.counts.craving}, GLP-1 notes ${bodySummary.counts.glp1Symptom}
+Body events: hunger ${bodySummary.counts.hunger}, craving signals ${bodySummary.counts.craving}, GLP-1 notes ${bodySummary.counts.glp1Symptom}${pcosEnabled(settings) ? `, PCOS context notes ${bodySummary.counts.pcosContext}` : ''}
 Average hunger: ${
     bodySummary.hungerAverage === null
       ? 'not logged'
@@ -1399,6 +1515,12 @@ ${steeringSummary}
 
 ## Plant Diversity Split
 ${plantCategoryLines(plantCategories)}
+${pcosPeriodSection({
+    bodyEvents: month.bodyEvents,
+    dayRecords: month.dateKeys.map((date) => days[date]).filter(Boolean),
+    label: 'Month',
+    settings,
+  })}
 
 ## Bowel Signal
 ${bowelSignalLine(
@@ -1499,6 +1621,11 @@ export const buildCsvExport = (days, settings) => {
     'plantServings',
     'caffeineMg',
     'alcoholUnits',
+    'pcosEatingDriver',
+    'pcosPostMealResponses',
+    'pcosTreatSatisfactionScore',
+    'pcosCravingContinued',
+    'pcosContextNotes',
     'notes',
     ...nutrientHeaders,
   ]
@@ -1514,6 +1641,11 @@ export const buildCsvExport = (days, settings) => {
         event.plantServings,
         event.caffeineMg ?? 0,
         event.alcoholUnits ?? 0,
+        event.pcosContext?.eatingDriver ?? '',
+        (event.pcosContext?.postMealResponses ?? []).join('; '),
+        event.pcosContext?.treatSatisfactionScore ?? '',
+        event.pcosContext?.cravingContinued ?? '',
+        event.pcosContext?.notes ?? '',
         event.notes,
         ...nutrientHeaders.map((key) => round(event.nutrients?.[key], 3)),
       ]),
@@ -1576,6 +1708,10 @@ export const buildCsvExport = (days, settings) => {
     'label',
     'symptom',
     'severity',
+    'periodActive',
+    'phase',
+    'pcosSymptoms',
+    'irregularityNote',
     'notes',
   ]
   const bodyRows = Object.values(days)
@@ -1588,6 +1724,10 @@ export const buildCsvExport = (days, settings) => {
         event.label ?? '',
         event.symptom ?? '',
         event.severity ?? '',
+        event.periodActive ?? '',
+        event.phase ?? '',
+        (event.symptoms ?? []).join('; '),
+        event.irregularityNote ?? '',
         event.notes ?? '',
       ]),
     )

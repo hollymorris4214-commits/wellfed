@@ -1,4 +1,10 @@
 import { defaultSettings, normalizeCustomNutrients } from '../data/nutrients'
+import {
+  PCOS_DIGESTION_ISSUES,
+  PCOS_INSULIN_RESISTANCE_OPTIONS,
+  PCOS_PRIORITIES,
+  PCOS_STRESS_PATTERNS,
+} from '../data/pcos'
 import { getWeekdayKey, isBeforeDateKey, todayKey } from './date'
 
 const SETTINGS_KEY = 'wellfed_settings_v1'
@@ -37,6 +43,38 @@ const normalizeColaStretchSettings = (settings = {}) => ({
     : defaultSettings.colaStretch.keywords,
 })
 
+const normalizePcosSettings = (settings = {}) => {
+  const source = settings.pcos ?? {}
+  return {
+    ...defaultSettings.pcos,
+    ...source,
+    enabled: Boolean(source.enabled),
+    priorities: Array.isArray(source.priorities)
+      ? source.priorities.filter((id) =>
+          PCOS_PRIORITIES.some((option) => option.id === id),
+        )
+      : [],
+    medicationsSupplements: String(source.medicationsSupplements ?? '').trim(),
+    insulinResistance: PCOS_INSULIN_RESISTANCE_OPTIONS.some(
+      (option) => option.id === source.insulinResistance,
+    )
+      ? source.insulinResistance
+      : defaultSettings.pcos.insulinResistance,
+    cycleTrackingElsewhere:
+      source.cycleTrackingElsewhere === 'no' ? 'no' : 'yes',
+    digestionIssue: PCOS_DIGESTION_ISSUES.some(
+      (option) => option.id === source.digestionIssue,
+    )
+      ? source.digestionIssue
+      : '',
+    stressEatingPattern: PCOS_STRESS_PATTERNS.some(
+      (option) => option.id === source.stressEatingPattern,
+    )
+      ? source.stressEatingPattern
+      : '',
+  }
+}
+
 export const createId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID()
@@ -71,6 +109,7 @@ export const loadSettings = () => {
     pantryItems: Array.isArray(saved.pantryItems) ? saved.pantryItems : [],
     colaStretch: normalizeColaStretchSettings(saved),
     glp1: normalizeGlp1Settings(saved),
+    pcos: normalizePcosSettings(saved),
   }
 }
 
@@ -180,6 +219,7 @@ export const normalizeBackup = (backup) => {
       pantryBackfilledAt: backup.settings?.pantryBackfilledAt ?? '',
       colaStretch: normalizeColaStretchSettings(backup.settings ?? {}),
       glp1: normalizeGlp1Settings(backup.settings ?? {}),
+      pcos: normalizePcosSettings(backup.settings ?? {}),
     },
   }
 }

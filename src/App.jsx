@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import './App.css'
 import coffeeIconUrl from './assets/transparent_coffee_icon.svg'
 import {
@@ -15,6 +16,19 @@ import {
   getBowelEventQuality,
   summariseBowelQuality,
 } from './data/bowel'
+import {
+  PCOS_DIGESTION_ISSUES,
+  PCOS_EATING_DRIVERS,
+  PCOS_INSULIN_RESISTANCE_OPTIONS,
+  PCOS_PHASES,
+  PCOS_POST_MEAL_RESPONSES,
+  PCOS_PRIORITIES,
+  PCOS_STRESS_PATTERNS,
+  PCOS_SYMPTOMS,
+  normalisePcosEventContext,
+  pcosCheckinLine,
+  pcosEventContextLine,
+} from './data/pcos'
 import {
   CALORIE_STREAMS,
   CALORIE_STREAM_IDS,
@@ -923,6 +937,9 @@ function App() {
       const parsed = parseWellFedEvent(draft, nutrients)
       const event = {
         ...parsed,
+        ...(editingEvent?.pcosContext
+          ? { pcosContext: editingEvent.pcosContext }
+          : {}),
         id: editingEvent?.id ?? createId(),
         createdAt: editingEvent?.createdAt ?? new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -1004,6 +1021,7 @@ function App() {
       createdAt: now,
       updatedAt: now,
     }
+    delete event.pcosContext
 
     event.rawText = serializeEventToTemplate(event, nutrients)
     upsertEvent(event)
@@ -1194,6 +1212,25 @@ function App() {
     )
   }
 
+  const updateFoodEventPcosContext = (event, context) => {
+    const pcosContext = normalisePcosEventContext(context)
+    updateDay(event.date, (day) => ({
+      ...day,
+      events: sortEvents(
+        (day.events ?? []).map((item) =>
+          item.id === event.id
+            ? {
+                ...item,
+                pcosContext,
+                updatedAt: new Date().toISOString(),
+              }
+            : item,
+        ),
+      ),
+    }))
+    setToast('PCOS context saved.')
+  }
+
   const logBowelEvent = (details) => {
     const payload =
       typeof details === 'object' && details !== null ? details : { type: details }
@@ -1329,6 +1366,35 @@ function App() {
     }))
     setBodyPickerMode(null)
     setToast(`${symptom.label} (${severity}) logged.`)
+  }
+
+  const logPcosContextEvent = ({
+    irregularityNote = '',
+    notes = '',
+    periodActive = '',
+    phase = '',
+    symptoms = [],
+  }) => {
+    const event = {
+      id: createId(),
+      date: currentDate,
+      time: timeNow(),
+      kind: 'pcosContext',
+      periodActive,
+      phase,
+      symptoms: [...symptoms],
+      irregularityNote: irregularityNote.trim(),
+      notes: notes.trim(),
+      createdAt: new Date().toISOString(),
+    }
+    updateDay(currentDate, (day) => ({
+      ...day,
+      bodyEvents: [...(day.bodyEvents ?? []), event].sort((a, b) =>
+        a.time.localeCompare(b.time),
+      ),
+    }))
+    setBodyPickerMode(null)
+    setToast('PCOS context noted.')
   }
 
   const logGlp1Dose = ({ dose, site }) => {
@@ -1705,6 +1771,7 @@ function App() {
             logEventFromDraft={logEventFromDraft}
             logGlp1Dose={logGlp1Dose}
             logGlp1SymptomEvent={logGlp1SymptomEvent}
+            logPcosContextEvent={logPcosContextEvent}
             logPantryItem={logPantryItem}
             logSupplementPreset={logSupplementPreset}
             openDuplicateEvent={openDuplicateEvent}
@@ -1731,6 +1798,7 @@ function App() {
             updateDay={updateDay}
             updateFoodEventTime={updateFoodEventTime}
             updateFoodEventSatiety={updateFoodEventSatiety}
+            updateFoodEventPcosContext={updateFoodEventPcosContext}
             updateBowelEventTime={updateBowelEventTime}
             updateBodyEventTime={updateBodyEventTime}
             updateGlp1DoseTime={updateGlp1DoseTime}
@@ -2151,6 +2219,7 @@ function TodayView({
   logEventFromDraft,
   logGlp1Dose,
   logGlp1SymptomEvent,
+  logPcosContextEvent,
   logPantryItem,
   logSupplementPreset,
   nutrients,
@@ -2172,6 +2241,7 @@ function TodayView({
   updateDay,
   updateFoodEventTime,
   updateFoodEventSatiety,
+  updateFoodEventPcosContext,
   updateBowelEventTime,
   updateBodyEventTime,
   updateGlp1DoseTime,
@@ -2192,6 +2262,9 @@ function TodayView({
   const todayEvents = sortEvents(today.events ?? [])
   const todayBowelEvents = todayTotals.bowelEvents
   const todayBodyEvents = todayTotals.bodyEvents
+  const visibleTodayBodyEvents = settings.pcos?.enabled
+    ? todayBodyEvents
+    : todayBodyEvents.filter((event) => event.kind !== 'pcosContext')
   const colaStretch = settings.colaStretch?.enabled
     ? buildColaStretch(days, today.date, settings)
     : null
@@ -2421,7 +2494,7 @@ function TodayView({
         isOpen={homeSectionsOpen.body}
         onToggle={() => toggleHomeSection('body')}
         panelRef={bodyPanelRef}
-        summary={`${todayBowelEvents.length + todayBodyEvents.length} logged`}
+        summary={`${todayBowelEvents.length + visibleTodayBodyEvents.length} logged`}
         title="Body Event"
       >
         {settings.glp1?.enabled && (
@@ -2437,10 +2510,12 @@ function TodayView({
         {bodyPickerMode && (
           <BodyEventPicker
             glp1Enabled={settings.glp1?.enabled}
+            pcosEnabled={settings.pcos?.enabled}
             logBowelEvent={logBowelEvent}
             logBodyScoreEvent={logBodyScoreEvent}
             logCravingEvent={logCravingEvent}
             logGlp1SymptomEvent={logGlp1SymptomEvent}
+            logPcosContextEvent={logPcosContextEvent}
             mode={bodyPickerMode}
             setMode={setBodyPickerMode}
           />
@@ -2452,7 +2527,7 @@ function TodayView({
         />
         <BodyEventTimeline
           deleteBodyEvent={deleteBodyEvent}
-          events={todayBodyEvents}
+          events={visibleTodayBodyEvents}
           updateBodyEventTime={updateBodyEventTime}
         />
       </HomeCollapsePanel>
@@ -2620,6 +2695,8 @@ function TodayView({
           editEvent={editEvent}
           events={todayEvents}
           openDuplicateEvent={openDuplicateEvent}
+          pcosEnabled={settings.pcos?.enabled}
+          updateFoodEventPcosContext={updateFoodEventPcosContext}
           updateFoodEventTime={updateFoodEventTime}
           updateFoodEventSatiety={updateFoodEventSatiety}
         />
@@ -2830,7 +2907,10 @@ function WeekView({
 
       <section className="visual-panel bowel-summary-panel">
         <p className="eyebrow">Body events</p>
-        <BowelWeekPanel week={week} />
+        <BowelWeekPanel
+          pcosEnabled={settings.pcos?.enabled}
+          week={week}
+        />
       </section>
 
       <section className="nutrient-panel wide-panel">
@@ -2919,7 +2999,11 @@ function MonthView({ copyReport, currentMonth, days, settings }) {
             <h2>Calendar pattern</h2>
           </div>
         </div>
-        <BowelMonthPanel days={days} month={month} />
+        <BowelMonthPanel
+          days={days}
+          month={month}
+          pcosEnabled={settings.pcos?.enabled}
+        />
       </section>
 
       <section className="nutrient-panel wide-panel">
@@ -3237,6 +3321,49 @@ function SettingsAccordion({
   )
 }
 
+function SelectableChipGroup({
+  label,
+  multiple = false,
+  onChange,
+  options,
+  value,
+}) {
+  const values = multiple ? value ?? [] : [value]
+  const toggle = (optionId) => {
+    if (!multiple) {
+      onChange(optionId)
+      return
+    }
+    onChange(
+      values.includes(optionId)
+        ? values.filter((id) => id !== optionId)
+        : [...values, optionId],
+    )
+  }
+
+  return (
+    <fieldset className="selectable-chip-group">
+      <legend>{label}</legend>
+      <div>
+        {options.map((option) => {
+          const selected = values.includes(option.id)
+          return (
+            <button
+              aria-pressed={selected}
+              className={selected ? 'selected' : ''}
+              key={option.id}
+              onClick={() => toggle(option.id)}
+              type="button"
+            >
+              {option.label}
+            </button>
+          )
+        })}
+      </div>
+    </fieldset>
+  )
+}
+
 function SettingsView({
   addCustomNutrient,
   backupPreview,
@@ -3339,6 +3466,160 @@ function SettingsView({
               value={settings.weeklyUniquePlantsTarget}
             />
           </label>
+        </div>
+      </SettingsAccordion>
+
+      <SettingsAccordion
+        eyebrow="Optional lens"
+        summary={
+          settings.pcos?.enabled
+            ? 'PCOS-aware coaching on'
+            : 'Meal timing and appetite context'
+        }
+        title="PCOS mode"
+      >
+        <div className="pcos-settings">
+          <label className="toggle-row">
+            <span>
+              <strong>PCOS coaching lens</strong>
+              <small>
+                Adds optional context prompts and PCOS-aware report insights.
+                It does not diagnose, predict ovulation, or replace medical care.
+              </small>
+            </span>
+            <input
+              checked={Boolean(settings.pcos?.enabled)}
+              onChange={(event) =>
+                updateSettings((previous) => ({
+                  ...previous,
+                  pcos: {
+                    ...previous.pcos,
+                    enabled: event.target.checked,
+                  },
+                }))
+              }
+              type="checkbox"
+            />
+          </label>
+
+          {settings.pcos?.enabled && (
+            <div className="pcos-settings-content">
+              <SelectableChipGroup
+                label="Priorities"
+                multiple
+                onChange={(priorities) =>
+                  updateSettings((previous) => ({
+                    ...previous,
+                    pcos: {
+                      ...previous.pcos,
+                      priorities,
+                    },
+                  }))
+                }
+                options={PCOS_PRIORITIES}
+                value={settings.pcos?.priorities ?? []}
+              />
+              <div className="pcos-settings-grid">
+                <label>
+                  <span>Known insulin resistance</span>
+                  <select
+                    onChange={(event) =>
+                      updateSettings((previous) => ({
+                        ...previous,
+                        pcos: {
+                          ...previous.pcos,
+                          insulinResistance: event.target.value,
+                        },
+                      }))
+                    }
+                    value={settings.pcos?.insulinResistance ?? 'unsure'}
+                  >
+                    {PCOS_INSULIN_RESISTANCE_OPTIONS.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Cycle tracking elsewhere</span>
+                  <select
+                    onChange={(event) =>
+                      updateSettings((previous) => ({
+                        ...previous,
+                        pcos: {
+                          ...previous.pcos,
+                          cycleTrackingElsewhere: event.target.value,
+                        },
+                      }))
+                    }
+                    value={settings.pcos?.cycleTrackingElsewhere ?? 'yes'}
+                  >
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Typical digestion context</span>
+                  <select
+                    onChange={(event) =>
+                      updateSettings((previous) => ({
+                        ...previous,
+                        pcos: {
+                          ...previous.pcos,
+                          digestionIssue: event.target.value,
+                        },
+                      }))
+                    }
+                    value={settings.pcos?.digestionIssue ?? ''}
+                  >
+                    {PCOS_DIGESTION_ISSUES.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Stress-eating pattern</span>
+                  <select
+                    onChange={(event) =>
+                      updateSettings((previous) => ({
+                        ...previous,
+                        pcos: {
+                          ...previous.pcos,
+                          stressEatingPattern: event.target.value,
+                        },
+                      }))
+                    }
+                    value={settings.pcos?.stressEatingPattern ?? ''}
+                  >
+                    {PCOS_STRESS_PATTERNS.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <label className="pcos-profile-notes">
+                <span>Current PCOS medicines or supplements, if useful</span>
+                <textarea
+                  onChange={(event) =>
+                    updateSettings((previous) => ({
+                      ...previous,
+                      pcos: {
+                        ...previous.pcos,
+                        medicationsSupplements: event.target.value,
+                      },
+                    }))
+                  }
+                  placeholder="Optional context for reports"
+                  value={settings.pcos?.medicationsSupplements ?? ''}
+                />
+              </label>
+            </div>
+          )}
         </div>
       </SettingsAccordion>
 
@@ -4500,6 +4781,7 @@ function bodyEventKindLabel(kind) {
   if (kind === 'foodNoise') return 'Food noise'
   if (kind === 'craving') return 'Craving'
   if (kind === 'glp1Symptom') return 'GLP-1'
+  if (kind === 'pcosContext') return 'PCOS context'
   return kind
 }
 
@@ -4606,12 +4888,99 @@ function Glp1SupportCard({
   )
 }
 
+function PcosContextPicker({ logPcosContextEvent, setMode }) {
+  const [periodActive, setPeriodActive] = useState('')
+  const [phase, setPhase] = useState('')
+  const [symptoms, setSymptoms] = useState([])
+  const [irregularityNote, setIrregularityNote] = useState('')
+  const [notes, setNotes] = useState('')
+  const hasContext =
+    periodActive || phase || symptoms.length || irregularityNote.trim() || notes.trim()
+
+  return (
+    <div className="body-event-picker pcos-checkin-picker">
+      <div className="picker-header">
+        <div>
+          <strong>PCOS context</strong>
+          <small>Optional nutrition context, not cycle prediction.</small>
+        </div>
+        <button onClick={() => setMode('menu')} type="button">
+          Back
+        </button>
+      </div>
+      <SelectableChipGroup
+        label="Period active"
+        onChange={setPeriodActive}
+        options={[
+          { id: 'yes', label: 'Yes' },
+          { id: 'no', label: 'No' },
+          { id: 'unsure', label: 'Unsure' },
+        ]}
+        value={periodActive}
+      />
+      <label>
+        <span>Approximate phase, if useful</span>
+        <select onChange={(event) => setPhase(event.target.value)} value={phase}>
+          {PCOS_PHASES.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <SelectableChipGroup
+        label="Symptoms worth noting"
+        multiple
+        onChange={setSymptoms}
+        options={PCOS_SYMPTOMS}
+        value={symptoms}
+      />
+      <label>
+        <span>Cycle irregularity note</span>
+        <input
+          onChange={(event) => setIrregularityNote(event.target.value)}
+          placeholder="Optional"
+          type="text"
+          value={irregularityNote}
+        />
+      </label>
+      <label>
+        <span>Other context</span>
+        <input
+          onChange={(event) => setNotes(event.target.value)}
+          placeholder="Optional"
+          type="text"
+          value={notes}
+        />
+      </label>
+      <button
+        className="primary-action"
+        disabled={!hasContext}
+        onClick={() =>
+          logPcosContextEvent({
+            irregularityNote,
+            notes,
+            periodActive,
+            phase,
+            symptoms,
+          })
+        }
+        type="button"
+      >
+        Save context
+      </button>
+    </div>
+  )
+}
+
 function BodyEventPicker({
   glp1Enabled,
+  pcosEnabled,
   logBowelEvent,
   logBodyScoreEvent,
   logCravingEvent,
   logGlp1SymptomEvent,
+  logPcosContextEvent,
   mode,
   setMode,
 }) {
@@ -4666,6 +5035,18 @@ function BodyEventPicker({
                 G
               </span>
               <strong>GLP-1 note</strong>
+            </button>
+          )}
+          {pcosEnabled && (
+            <button
+              aria-label="Log PCOS context"
+              onClick={() => setMode('pcosContext')}
+              type="button"
+            >
+              <span aria-hidden="true" className="body-event-mark pcos">
+                P
+              </span>
+              <strong>PCOS context</strong>
             </button>
           )}
         </div>
@@ -4727,6 +5108,15 @@ function BodyEventPicker({
           ))}
         </div>
       </div>
+    )
+  }
+
+  if (mode === 'pcosContext') {
+    return (
+      <PcosContextPicker
+        logPcosContextEvent={logPcosContextEvent}
+        setMode={setMode}
+      />
     )
   }
 
@@ -4885,6 +5275,8 @@ function BodyEventTimeline({ deleteBodyEvent, events, updateBodyEventTime }) {
                 ? event.label
                 : event.kind === 'glp1Symptom'
                   ? `${event.label} ${event.severity}`
+                  : event.kind === 'pcosContext'
+                    ? pcosCheckinLine(event)
                   : `${bodyEventKindLabel(event.kind)} ${event.score}/10`}
               {event.notes ? ` - ${event.notes}` : ''}
             </small>
@@ -4982,6 +5374,7 @@ function summariseBodyEvents(events = []) {
   const foodNoise = events.filter((event) => event.kind === 'foodNoise')
   const cravings = events.filter((event) => event.kind === 'craving')
   const glp1Symptoms = events.filter((event) => event.kind === 'glp1Symptom')
+  const pcosContexts = events.filter((event) => event.kind === 'pcosContext')
   const avg = (items) =>
     items.length
       ? Math.round(
@@ -4996,15 +5389,19 @@ function summariseBodyEvents(events = []) {
     foodNoiseAverage: avg(foodNoise),
     cravings: [...new Set(cravings.map((event) => event.label).filter(Boolean))],
     glp1Symptoms,
+    pcosContexts,
     total: events.length,
   }
 }
 
-function BowelWeekPanel({ week }) {
+function BowelWeekPanel({ pcosEnabled, week }) {
   const mostCommon = week.mostCommonBowelType
     ? getBristolType(week.mostCommonBowelType)
     : null
-  const bodySummary = summariseBodyEvents(week.bodyEvents)
+  const visibleBodyEvents = pcosEnabled
+    ? week.bodyEvents
+    : week.bodyEvents.filter((event) => event.kind !== 'pcosContext')
+  const bodySummary = summariseBodyEvents(visibleBodyEvents)
   const bowelQualitySummary = summariseBowelQuality(week.bowelEvents)
 
   return (
@@ -5056,6 +5453,9 @@ function BowelWeekPanel({ week }) {
         {bodySummary.glp1Symptoms.length > 0 && (
           <span>{bodySummary.glp1Symptoms.length} GLP-1 notes</span>
         )}
+        {bodySummary.pcosContexts.length > 0 && (
+          <span>{bodySummary.pcosContexts.length} PCOS notes</span>
+        )}
       </div>
       {bodySummary.cravings.length > 0 && (
         <div className="craving-chip-list">
@@ -5069,11 +5469,14 @@ function BowelWeekPanel({ week }) {
   )
 }
 
-function BowelMonthPanel({ days, month }) {
+function BowelMonthPanel({ days, month, pcosEnabled }) {
   const mostCommon = month.mostCommonBowelType
     ? getBristolType(month.mostCommonBowelType)
     : null
-  const bodySummary = summariseBodyEvents(month.bodyEvents)
+  const visibleBodyEvents = pcosEnabled
+    ? month.bodyEvents
+    : month.bodyEvents.filter((event) => event.kind !== 'pcosContext')
+  const bodySummary = summariseBodyEvents(visibleBodyEvents)
   const bowelQualitySummary = summariseBowelQuality(month.bowelEvents)
 
   return (
@@ -5095,6 +5498,12 @@ function BowelMonthPanel({ days, month }) {
           <strong>{bodySummary.glp1Symptoms.length}</strong>
           <span>GLP-1 notes</span>
         </div>
+        {bodySummary.pcosContexts.length > 0 && (
+          <div>
+            <strong>{bodySummary.pcosContexts.length}</strong>
+            <span>PCOS notes</span>
+          </div>
+        )}
       </div>
       <p className="bowel-quality-line">
         {bowelQualitySignalLine(month.bowelEvents)}
@@ -5291,104 +5700,257 @@ function PlantTreeMeter({ plants, target }) {
   )
 }
 
+function PcosFoodContextDialog({ event, onClose, onSave }) {
+  const initialContext = normalisePcosEventContext(event.pcosContext)
+  const [eatingDriver, setEatingDriver] = useState(initialContext.eatingDriver)
+  const [postMealResponses, setPostMealResponses] = useState(
+    initialContext.postMealResponses,
+  )
+  const [treatSatisfactionScore, setTreatSatisfactionScore] = useState(
+    initialContext.treatSatisfactionScore,
+  )
+  const [cravingContinued, setCravingContinued] = useState(
+    initialContext.cravingContinued,
+  )
+  const [notes, setNotes] = useState(initialContext.notes)
+  const isTreat =
+    (Number(event.nutrients?.upfDiscretionaryCaloriesKcal) || 0) > 0
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    const closeOnEscape = (keyEvent) => {
+      if (keyEvent.key === 'Escape') onClose()
+    }
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', closeOnEscape)
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [onClose])
+
+  return createPortal(
+    <div className="modal-backdrop pcos-context-backdrop" role="presentation">
+      <section
+        aria-label={`PCOS context for ${event.name}`}
+        aria-modal="true"
+        className="pcos-context-dialog"
+        role="dialog"
+      >
+        <div className="pcos-context-header">
+          <div>
+            <p className="eyebrow">Optional context</p>
+            <h2>{event.name}</h2>
+            <p>Pattern notes, not judgement.</p>
+          </div>
+          <button aria-label="Close PCOS context" onClick={onClose} type="button">
+            x
+          </button>
+        </div>
+        <SelectableChipGroup
+          label="What mainly shaped this food choice?"
+          onChange={setEatingDriver}
+          options={PCOS_EATING_DRIVERS}
+          value={eatingDriver}
+        />
+        <SelectableChipGroup
+          label="What did you notice afterwards?"
+          multiple
+          onChange={setPostMealResponses}
+          options={PCOS_POST_MEAL_RESPONSES}
+          value={postMealResponses}
+        />
+        {isTreat && (
+          <div className="pcos-treat-context">
+            <label>
+              <span>Treat satisfaction</span>
+              <select
+                onChange={(inputEvent) =>
+                  setTreatSatisfactionScore(inputEvent.target.value)
+                }
+                value={treatSatisfactionScore}
+              >
+                <option value="">Not noted</option>
+                {Array.from({ length: 10 }, (_, index) => index + 1).map(
+                  (score) => (
+                    <option key={score} value={score}>
+                      {score}/10
+                    </option>
+                  ),
+                )}
+              </select>
+            </label>
+            <SelectableChipGroup
+              label="Did the craving continue?"
+              onChange={setCravingContinued}
+              options={[
+                { id: 'yes', label: 'Yes' },
+                { id: 'no', label: 'No' },
+              ]}
+              value={cravingContinued}
+            />
+          </div>
+        )}
+        <label className="pcos-context-notes">
+          <span>Anything else worth remembering?</span>
+          <input
+            onChange={(inputEvent) => setNotes(inputEvent.target.value)}
+            placeholder="Optional"
+            type="text"
+            value={notes}
+          />
+        </label>
+        <div className="pcos-context-actions">
+          <button onClick={onClose} type="button">
+            Cancel
+          </button>
+          <button
+            className="primary-action"
+            onClick={() =>
+              onSave({
+                cravingContinued,
+                eatingDriver,
+                notes,
+                postMealResponses,
+                treatSatisfactionScore,
+              })
+            }
+            type="button"
+          >
+            Save context
+          </button>
+        </div>
+      </section>
+    </div>,
+    document.body,
+  )
+}
+
 function VineTimeline({
   deleteEvent,
   editEvent,
   events,
   openDuplicateEvent,
+  pcosEnabled,
+  updateFoodEventPcosContext,
   updateFoodEventSatiety,
   updateFoodEventTime,
 }) {
+  const [pcosEvent, setPcosEvent] = useState(null)
   if (events.length === 0) {
     return <p className="empty-note">No food events yet. Start with one note.</p>
   }
 
   return (
-    <div className="vine-scroll">
-      <ol className="vine-list" aria-label="Food event vine timeline">
-        {events.map((event, index) => (
-          <li
-            className={`vine-event ${event.type} ${
-              index % 2 === 0 ? 'above' : 'below'
-            }`}
-            key={event.id}
-          >
-            <div className="event-body">
-              <div>
-                <input
-                  aria-label={`Time for ${event.name}`}
-                  className="event-time-input"
-                  onChange={(inputEvent) =>
-                    updateFoodEventTime(event, inputEvent.target.value)
-                  }
-                  onInput={(inputEvent) =>
-                    updateFoodEventTime(event, inputEvent.currentTarget.value)
-                  }
-                  type="time"
-                  value={event.time}
-                />
-                <strong>{event.name}</strong>
-                <small>{event.type}</small>
-              </div>
-              <div className="event-chips">
-                <span>{formatAmount(event.nutrients.proteinG, 1)}g protein</span>
-                <span>{formatAmount(event.nutrients.fibreG, 1)}g fibre</span>
-                {event.satietyScore && (
-                  <span>satiation {event.satietyScore}/10</span>
-                )}
-                {event.plantServings > 0 && (
-                  <span>{formatAmount(event.plantServings, 1)} plants</span>
-                )}
-                {Number(event.caffeineMg) > 0 && (
-                  <span>{formatAmount(event.caffeineMg)}mg caffeine</span>
-                )}
-                {Number(event.alcoholUnits) > 0 && (
-                  <span>{formatUnitCount(event.alcoholUnits)} alcohol</span>
-                )}
-                <span>{formatAmount(event.nutrients.caloriesKcal)} kcal</span>
-                {CALORIE_STREAMS.map((stream) => {
-                  const value = Number(event.nutrients?.[stream.id]) || 0
-                  return value > 0 ? (
-                    <span key={stream.id}>
-                      {formatAmount(value)} {stream.shortLabel.toLowerCase()} kcal
-                    </span>
-                  ) : null
-                })}
-              </div>
-              <div className="event-actions">
-                <label className="satiety-control">
-                  <span>Satiation</span>
-                  <select
+    <>
+      <div className="vine-scroll">
+        <ol className="vine-list" aria-label="Food event vine timeline">
+          {events.map((event, index) => (
+            <li
+              className={`vine-event ${event.type} ${
+                index % 2 === 0 ? 'above' : 'below'
+              }`}
+              key={event.id}
+            >
+              <div className="event-body">
+                <div>
+                  <input
+                    aria-label={`Time for ${event.name}`}
+                    className="event-time-input"
                     onChange={(inputEvent) =>
-                      updateFoodEventSatiety(event, inputEvent.target.value)
+                      updateFoodEventTime(event, inputEvent.target.value)
                     }
-                    value={event.satietyScore ?? ''}
-                  >
-                    <option value="">-</option>
-                    {Array.from({ length: 10 }, (_, scoreIndex) => scoreIndex + 1).map(
-                      (score) => (
+                    onInput={(inputEvent) =>
+                      updateFoodEventTime(event, inputEvent.currentTarget.value)
+                    }
+                    type="time"
+                    value={event.time}
+                  />
+                  <strong>{event.name}</strong>
+                  <small>{event.type}</small>
+                </div>
+                <div className="event-chips">
+                  <span>{formatAmount(event.nutrients.proteinG, 1)}g protein</span>
+                  <span>{formatAmount(event.nutrients.fibreG, 1)}g fibre</span>
+                  {event.satietyScore && (
+                    <span>satiation {event.satietyScore}/10</span>
+                  )}
+                  {event.plantServings > 0 && (
+                    <span>{formatAmount(event.plantServings, 1)} plants</span>
+                  )}
+                  {Number(event.caffeineMg) > 0 && (
+                    <span>{formatAmount(event.caffeineMg)}mg caffeine</span>
+                  )}
+                  {Number(event.alcoholUnits) > 0 && (
+                    <span>{formatUnitCount(event.alcoholUnits)} alcohol</span>
+                  )}
+                  <span>{formatAmount(event.nutrients.caloriesKcal)} kcal</span>
+                  {CALORIE_STREAMS.map((stream) => {
+                    const value = Number(event.nutrients?.[stream.id]) || 0
+                    return value > 0 ? (
+                      <span key={stream.id}>
+                        {formatAmount(value)} {stream.shortLabel.toLowerCase()} kcal
+                      </span>
+                    ) : null
+                  })}
+                  {pcosEnabled && pcosEventContextLine(event) && (
+                    <span className="pcos-context-chip">
+                      {pcosEventContextLine(event)}
+                    </span>
+                  )}
+                </div>
+                <div className="event-actions">
+                  <label className="satiety-control">
+                    <span>Satiation</span>
+                    <select
+                      onChange={(inputEvent) =>
+                        updateFoodEventSatiety(event, inputEvent.target.value)
+                      }
+                      value={event.satietyScore ?? ''}
+                    >
+                      <option value="">-</option>
+                      {Array.from(
+                        { length: 10 },
+                        (_, scoreIndex) => scoreIndex + 1,
+                      ).map((score) => (
                         <option key={score} value={score}>
                           {score}
                         </option>
-                      ),
-                    )}
-                  </select>
-                </label>
-                <button onClick={() => editEvent(event)} type="button">
-                  Edit
-                </button>
-                <button onClick={() => openDuplicateEvent(event)} type="button">
-                  Duplicate
-                </button>
-                <button onClick={() => deleteEvent(event)} type="button">
-                  Delete
-                </button>
+                      ))}
+                    </select>
+                  </label>
+                  <button onClick={() => editEvent(event)} type="button">
+                    Edit
+                  </button>
+                  <button onClick={() => openDuplicateEvent(event)} type="button">
+                    Duplicate
+                  </button>
+                  {pcosEnabled && event.type !== 'supplement' && (
+                    <button onClick={() => setPcosEvent(event)} type="button">
+                      PCOS note
+                    </button>
+                  )}
+                  <button onClick={() => deleteEvent(event)} type="button">
+                    Delete
+                  </button>
+                </div>
               </div>
-            </div>
-          </li>
-        ))}
-      </ol>
-    </div>
+            </li>
+          ))}
+        </ol>
+      </div>
+      {pcosEvent && (
+        <PcosFoodContextDialog
+          event={pcosEvent}
+          onClose={() => setPcosEvent(null)}
+          onSave={(context) => {
+            updateFoodEventPcosContext(pcosEvent, context)
+            setPcosEvent(null)
+          }}
+        />
+      )}
+    </>
   )
 }
 

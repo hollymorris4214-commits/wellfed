@@ -554,4 +554,13 @@ export const defaultSettings = {
     proteinFloorG: 100,
     trackInjectionSite: true,
   },
+  pcos: {
+    enabled: false,
+    priorities: [],
+    medicationsSupplements: '',
+    insulinResistance: 'unsure',
+    cycleTrackingElsewhere: 'yes',
+    digestionIssue: '',
+    stressEatingPattern: '',
+  },
 }
