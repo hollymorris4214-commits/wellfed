@@ -541,6 +541,8 @@ export const defaultSettings = {
   pantryItems: [],
   pantryBackfilledAt: '',
   customNutrients: [],
+  customWorkoutTypes: [],
+  healthMeasurementDefinitions: [],
   colaStretch: {
     enabled: true,
     keywords: ['coca-cola', 'coca cola', 'coke', 'cola'],

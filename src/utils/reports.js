@@ -28,6 +28,12 @@ import {
   pcosPeriodSignalLines,
 } from '../data/pcos'
 import {
+  BODY_COMPOSITION_METRICS,
+  MOVEMENT_RECOVERY_METRICS,
+  getMovementMetricValue,
+  hasTrackedValue,
+} from '../data/health'
+import {
   formatDate,
   formatMonth,
   formatWeekRange,
@@ -166,6 +172,12 @@ const hasAnyDayData = (day) =>
   (day?.bowelEvents ?? []).length > 0 ||
   (day?.bodyEvents ?? []).length > 0 ||
   (day?.glp1Doses ?? []).length > 0 ||
+  (day?.bodyCompositionEntries ?? []).length > 0 ||
+  (day?.healthCheckpoints ?? []).length > 0 ||
+  MOVEMENT_RECOVERY_METRICS.some(
+    (metric) =>
+      getMovementMetricValue(day?.movementRecovery, metric.id) !== null,
+  ) ||
   Number(day?.waterMl) > 0 ||
   Number(day?.caffeineMg) > 0 ||
   Number(day?.alcoholUnits) > 0
@@ -382,6 +394,8 @@ export const getDayTotals = (day, settingsOrNutrients) => {
     })
   })
 
+  const bodyEvents = sortBodyEvents(day?.bodyEvents ?? [])
+
   return {
     nutrients: totals,
     foodNutrients,
@@ -397,7 +411,9 @@ export const getDayTotals = (day, settingsOrNutrients) => {
       return streams
     }, {}),
     bowelEvents: sortBowelEvents(day?.bowelEvents ?? []),
-    bodyEvents: sortBodyEvents(day?.bodyEvents ?? []),
+    bodyEvents,
+    workouts: bodyEvents.filter((event) => event.kind === 'workout'),
+    movementRecovery: day?.movementRecovery ?? {},
     glp1Doses: sortGlp1DoseEvents(day?.glp1Doses ?? []),
   }
 }
@@ -664,6 +680,14 @@ const bowelEventLines = (events = []) =>
 const bodyEventLabel = (event) => {
   const notes = event.notes ? ` (${event.notes})` : ''
   if (event.kind === 'hunger') return `hunger ${event.score}/10${notes}`
+  if (event.kind === 'energy') return `energy ${event.score}/10${notes}`
+  if (event.kind === 'workout') {
+    return `workout: ${event.workoutType || 'Workout'}, ${round(
+      event.durationMinutes,
+    )} minutes, RPE ${event.rpe}/10${
+      event.pilatesSubtype ? `, ${event.pilatesSubtype}` : ''
+    }${notes}`
+  }
   if (event.kind === 'foodNoise') return `food noise ${event.score}/10`
   if (event.kind === 'craving') return `craving signal: ${event.label}`
   if (event.kind === 'glp1Symptom') {
@@ -679,6 +703,85 @@ const bodyEventLines = (events = []) =>
   sortBodyEvents(events)
     .map((event) => `- ${event.time} ${bodyEventLabel(event)}`)
     .join('\n')
+
+const movementRecoveryLines = (movement = {}) => {
+  const lines = MOVEMENT_RECOVERY_METRICS.map((metric) => {
+    const value = getMovementMetricValue(movement, metric.id)
+    return value === null
+      ? null
+      : `- ${metric.label}: ${round(value, metric.digits)} ${metric.unit}`
+  }).filter(Boolean)
+  return lines.length ? lines.join('\n') : '- No movement or recovery metrics logged.'
+}
+
+const workoutPerformanceText = (event) => {
+  const parts = []
+  const exercises = event.performance?.strengthExercises ?? []
+  if (exercises.length) {
+    parts.push(
+      exercises
+        .map(
+          (exercise) =>
+            `${exercise.name}${hasTrackedValue(exercise.load) ? ` ${exercise.load}${exercise.loadUnit || ''}` : ''}${hasTrackedValue(exercise.sets) ? ` ${exercise.sets} sets` : ''}${hasTrackedValue(exercise.repetitions) ? ` x ${exercise.repetitions} reps` : ''}`,
+        )
+        .join('; '),
+    )
+  }
+  const cardio = event.performance?.cardio
+  if (cardio) {
+    if (hasTrackedValue(cardio.distance)) {
+      parts.push(`${cardio.distance} ${cardio.distanceUnit || 'km'}`)
+    }
+    if (hasTrackedValue(cardio.averageHeartRate)) {
+      parts.push(`average HR ${cardio.averageHeartRate} bpm`)
+    }
+    if (hasTrackedValue(cardio.maximumHeartRate)) {
+      parts.push(`maximum HR ${cardio.maximumHeartRate} bpm`)
+    }
+    if (cardio.paceOrSpeed) parts.push(cardio.paceOrSpeed)
+  }
+  const pilates = event.performance?.pilates
+  if (pilates) {
+    if (pilates.classLevelType) parts.push(pilates.classLevelType)
+    if (pilates.springsResistance) parts.push(`springs ${pilates.springsResistance}`)
+    if (pilates.instructor) parts.push(`instructor ${pilates.instructor}`)
+    if (pilates.performanceNotes) parts.push(pilates.performanceNotes)
+  }
+  return parts.length ? `; ${parts.join('; ')}` : ''
+}
+
+const workoutLines = (events = []) => {
+  const workouts = sortBodyEvents(events).filter(
+    (event) => event.kind === 'workout',
+  )
+  if (!workouts.length) return '- No workouts logged.'
+  return workouts
+    .map(
+      (event) =>
+        `- ${event.date ?? ''} ${event.time} ${event.workoutType}: ${round(
+          event.durationMinutes,
+        )} min, RPE ${event.rpe}/10${
+          event.pilatesSubtype ? `, ${event.pilatesSubtype}` : ''
+        }${workoutPerformanceText(event)}${
+          event.notes ? `; notes: ${event.notes}` : ''
+        }`.trim(),
+    )
+    .join('\n')
+}
+
+const periodMovementLines = (days, dateKeys) =>
+  MOVEMENT_RECOVERY_METRICS.map((metric) => {
+    const values = dateKeys
+      .map((date) => getMovementMetricValue(days[date]?.movementRecovery, metric.id))
+      .filter((value) => value !== null)
+    if (!values.length) return `- ${metric.label}: not logged`
+    return `- ${metric.label}: ${round(
+      values.reduce((sum, value) => sum + value, 0) / values.length,
+      metric.digits,
+    )} ${metric.unit} average across ${values.length} logged ${
+      values.length === 1 ? 'day' : 'days'
+    }`
+  }).join('\n')
 
 const hungerEventLines = (events = []) => {
   const hungerEvents = sortBodyEvents(events).filter(
@@ -738,6 +841,8 @@ const inferredSatietyLines = (foodEvents = [], bodyEvents = []) => {
 
 const bodyEventSummary = (events = []) => {
   const hunger = events.filter((event) => event.kind === 'hunger')
+  const energy = events.filter((event) => event.kind === 'energy')
+  const workouts = events.filter((event) => event.kind === 'workout')
   const foodNoise = events.filter((event) => event.kind === 'foodNoise')
   const cravings = events.filter((event) => event.kind === 'craving')
   const glp1Symptoms = events.filter((event) => event.kind === 'glp1Symptom')
@@ -752,12 +857,19 @@ const bodyEventSummary = (events = []) => {
 
   return {
     hungerAverage: avg(hunger),
+    energyAverage: avg(energy),
+    workoutMinutes: workouts.reduce(
+      (total, event) => total + (Number(event.durationMinutes) || 0),
+      0,
+    ),
     foodNoiseAverage: avg(foodNoise),
     cravings: [...new Set(cravings.map((event) => event.label).filter(Boolean))],
     glp1Symptoms,
     pcosContexts,
     counts: {
       hunger: hunger.length,
+      energy: energy.length,
+      workout: workouts.length,
       foodNoise: foodNoise.length,
       craving: cravings.length,
       glp1Symptom: glp1Symptoms.length,
@@ -1071,7 +1183,7 @@ const plantListLine = (plants = []) =>
   plants.length ? plants.join(', ') : 'none logged'
 
 const REPORT_LENS =
-  'Please analyse through a nutrition-first, body-neutral, anti-diet lens. Prioritise nourishment, consistency, symptoms, energy, digestion, satiation, hunger timing, inferred satiety patterns, curiosity, and self-knowledge over weight-loss judgement.'
+  'Please analyse through a nutrition-first, body-neutral, anti-diet lens. Consider nourishment, movement, recovery, symptoms, energy, digestion, satiation, hunger timing, training context, curiosity, and self-knowledge together. Treat wearable energy estimates as trend context rather than measured metabolism, and avoid weight-loss judgement.'
 
 const reportMetricLines = (metrics, fallback = '- Not enough logged days yet.') => {
   if (!metrics.count) return fallback
@@ -1255,6 +1367,12 @@ ${bowelLines || '- No bowel events logged.'}
 ${bodyLines || '- No hunger or craving signals logged.'}
 ${glp1DailySection(day, totals, settings, days)}
 
+## Movement & Recovery
+Daily metrics:
+${movementRecoveryLines(totals.movementRecovery)}
+Workouts:
+${workoutLines(totals.bodyEvents)}
+
 ## Nutrients
 ${nutrientLines(totals.nutrients, settings.nutrientTargets, nutrients, calorieTargets)}
 
@@ -1337,11 +1455,16 @@ Bristol appearance distribution: ${bowelDistributionLine(week.bowelDistribution)
 Most common Bristol appearance: ${
     mostCommon ? `Type ${mostCommon.id} (${mostCommon.label})` : 'not logged'
   }
-Body events: hunger ${bodySummary.counts.hunger}, craving signals ${bodySummary.counts.craving}, GLP-1 notes ${bodySummary.counts.glp1Symptom}${pcosEnabled(settings) ? `, PCOS context notes ${bodySummary.counts.pcosContext}` : ''}
+Body events: hunger ${bodySummary.counts.hunger}, energy ${bodySummary.counts.energy}, workouts ${bodySummary.counts.workout} (${round(bodySummary.workoutMinutes)} minutes), craving signals ${bodySummary.counts.craving}, GLP-1 notes ${bodySummary.counts.glp1Symptom}${pcosEnabled(settings) ? `, PCOS context notes ${bodySummary.counts.pcosContext}` : ''}
 Average hunger: ${
     bodySummary.hungerAverage === null
       ? 'not logged'
       : `${bodySummary.hungerAverage}/10`
+  }
+Average energy: ${
+    bodySummary.energyAverage === null
+      ? 'not logged'
+      : `${bodySummary.energyAverage}/10`
   }
 Craving signals: ${bodySummary.cravings.length ? bodySummary.cravings.join(', ') : 'none'}
 Caffeine: ${round(week.caffeineTotal)}mg total, ${round(
@@ -1387,8 +1510,14 @@ ${pcosPeriodSection({
     bodyEvents: week.bodyEvents,
     dayRecords: week.daily.map((item) => item.day).filter(Boolean),
     label: 'Week-to-date',
-    settings,
-  })}
+  settings,
+})}
+
+## Movement & Recovery
+Daily metric averages:
+${periodMovementLines(days, week.dateKeys)}
+Workouts:
+${workoutLines(week.bodyEvents)}
 
 ## Bowel Signal
 ${bowelSignalLine(week.bowelDistribution, week.bowelEvents.length, week.bowelEvents)}
@@ -1488,11 +1617,16 @@ Bristol appearance distribution: ${bowelDistributionLine(month.bowelDistribution
 Most common Bristol appearance: ${
     mostCommon ? `Type ${mostCommon.id} (${mostCommon.label})` : 'not logged'
   }
-Body events: hunger ${bodySummary.counts.hunger}, craving signals ${bodySummary.counts.craving}, GLP-1 notes ${bodySummary.counts.glp1Symptom}${pcosEnabled(settings) ? `, PCOS context notes ${bodySummary.counts.pcosContext}` : ''}
+Body events: hunger ${bodySummary.counts.hunger}, energy ${bodySummary.counts.energy}, workouts ${bodySummary.counts.workout} (${round(bodySummary.workoutMinutes)} minutes), craving signals ${bodySummary.counts.craving}, GLP-1 notes ${bodySummary.counts.glp1Symptom}${pcosEnabled(settings) ? `, PCOS context notes ${bodySummary.counts.pcosContext}` : ''}
 Average hunger: ${
     bodySummary.hungerAverage === null
       ? 'not logged'
       : `${bodySummary.hungerAverage}/10`
+  }
+Average energy: ${
+    bodySummary.energyAverage === null
+      ? 'not logged'
+      : `${bodySummary.energyAverage}/10`
   }
 Craving signals: ${bodySummary.cravings.length ? bodySummary.cravings.join(', ') : 'none'}
 Caffeine: ${round(month.caffeineTotal)}mg total, ${round(
@@ -1519,8 +1653,14 @@ ${pcosPeriodSection({
     bodyEvents: month.bodyEvents,
     dayRecords: month.dateKeys.map((date) => days[date]).filter(Boolean),
     label: 'Month',
-    settings,
-  })}
+  settings,
+})}
+
+## Movement & Recovery
+Daily metric averages:
+${periodMovementLines(days, month.dateKeys)}
+Workouts:
+${workoutLines(month.bodyEvents)}
 
 ## Bowel Signal
 ${bowelSignalLine(
@@ -1585,6 +1725,7 @@ export const buildCsvExport = (days, settings) => {
     'alcoholUnits',
     'plantServings',
     'uniquePlantCount',
+    ...MOVEMENT_RECOVERY_METRICS.map((metric) => metric.id),
     ...nutrientHeaders,
     ...nutrientHeaders.map((key) => `food_${key}`),
     ...nutrientHeaders.map((key) => `supplement_${key}`),
@@ -1603,6 +1744,10 @@ export const buildCsvExport = (days, settings) => {
         totals.alcoholUnits,
         totals.plantServings,
         totals.uniquePlants.length,
+        ...MOVEMENT_RECOVERY_METRICS.map(
+          (metric) =>
+            getMovementMetricValue(day.movementRecovery, metric.id) ?? '',
+        ),
         ...nutrientHeaders.map((key) => round(totals.nutrients[key], 3)),
         ...nutrientHeaders.map((key) => round(totals.foodNutrients[key], 3)),
         ...nutrientHeaders.map((key) =>
@@ -1712,6 +1857,11 @@ export const buildCsvExport = (days, settings) => {
     'phase',
     'pcosSymptoms',
     'irregularityNote',
+    'workoutType',
+    'durationMinutes',
+    'rpe',
+    'pilatesSubtype',
+    'workoutPerformance',
     'notes',
   ]
   const bodyRows = Object.values(days)
@@ -1728,10 +1878,71 @@ export const buildCsvExport = (days, settings) => {
         event.phase ?? '',
         (event.symptoms ?? []).join('; '),
         event.irregularityNote ?? '',
+        event.workoutType ?? '',
+        event.durationMinutes ?? '',
+        event.rpe ?? '',
+        event.pilatesSubtype ?? '',
+        event.performance ? JSON.stringify(event.performance) : '',
         event.notes ?? '',
       ]),
     )
     .sort((a, b) => `${a[0]}${a[1]}`.localeCompare(`${b[0]}${b[1]}`))
+
+  const bodyCompositionHeaders = [
+    'date',
+    'notes',
+    ...BODY_COMPOSITION_METRICS.map((metric) => metric.id),
+  ]
+  const bodyCompositionRows = Object.values(days)
+    .flatMap((day) =>
+      (day.bodyCompositionEntries ?? []).map((entry) => [
+        entry.date ?? day.date,
+        entry.notes ?? '',
+        ...BODY_COMPOSITION_METRICS.map(
+          (metric) => entry.values?.[metric.id] ?? '',
+        ),
+      ]),
+    )
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+
+  const checkpointHeaders = [
+    'checkpointDate',
+    'checkpointType',
+    'provider',
+    'checkpointNotes',
+    'measurementName',
+    'value',
+    'unit',
+    'referenceMin',
+    'referenceMax',
+    'category',
+    'desiredDirection',
+    'targetMin',
+    'targetMax',
+    'measurementNotes',
+  ]
+  const checkpointRows = Object.values(days)
+    .flatMap((day) =>
+      (day.healthCheckpoints ?? []).flatMap((checkpoint) =>
+        (checkpoint.measurements ?? []).map((measurement) => [
+          checkpoint.date ?? day.date,
+          checkpoint.type ?? '',
+          checkpoint.provider ?? '',
+          checkpoint.notes ?? '',
+          measurement.name ?? '',
+          measurement.value ?? '',
+          measurement.unit ?? '',
+          measurement.referenceMin ?? '',
+          measurement.referenceMax ?? '',
+          measurement.category ?? '',
+          measurement.direction ?? 'none',
+          measurement.targetMin ?? '',
+          measurement.targetMax ?? '',
+          measurement.notes ?? '',
+        ]),
+      ),
+    )
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
 
   const glp1Headers = ['date', 'time', 'medication', 'dose', 'site']
   const glp1Rows = Object.values(days)
@@ -1761,6 +1972,10 @@ export const buildCsvExport = (days, settings) => {
     section('Bowel Events', bowelHeaders, bowelRows),
     '',
     section('Body Events', bodyHeaders, bodyRows),
+    '',
+    section('Body Composition', bodyCompositionHeaders, bodyCompositionRows),
+    '',
+    section('Health Checkpoint Measurements', checkpointHeaders, checkpointRows),
     '',
     section('GLP-1 Doses', glp1Headers, glp1Rows),
   ].join('\n')

@@ -5,6 +5,7 @@ import {
   PCOS_PRIORITIES,
   PCOS_STRESS_PATTERNS,
 } from '../data/pcos'
+import { emptyMovementRecovery, normaliseMovementRecovery } from '../data/health'
 import { getWeekdayKey, isBeforeDateKey, todayKey } from './date'
 
 const SETTINGS_KEY = 'wellfed_settings_v1'
@@ -107,6 +108,14 @@ export const loadSettings = () => {
       ? saved.supplementPresets
       : [],
     pantryItems: Array.isArray(saved.pantryItems) ? saved.pantryItems : [],
+    customWorkoutTypes: Array.isArray(saved.customWorkoutTypes)
+      ? saved.customWorkoutTypes.map((type) => String(type).trim()).filter(Boolean)
+      : [],
+    healthMeasurementDefinitions: Array.isArray(
+      saved.healthMeasurementDefinitions,
+    )
+      ? saved.healthMeasurementDefinitions
+      : [],
     colaStretch: normalizeColaStretchSettings(saved),
     glp1: normalizeGlp1Settings(saved),
     pcos: normalizePcosSettings(saved),
@@ -137,12 +146,26 @@ export const createDayRecord = (dateKey, settings) => ({
   bowelEvents: [],
   bodyEvents: [],
   glp1Doses: [],
+  movementRecovery: emptyMovementRecovery(),
+  bodyCompositionEntries: [],
+  healthCheckpoints: [],
   archived: false,
 })
 
 export const ensureDay = (days, dateKey, settings) => {
   if (days[dateKey]) {
-    return days[dateKey]
+    const day = days[dateKey]
+    return {
+      ...createDayRecord(dateKey, settings),
+      ...day,
+      movementRecovery: normaliseMovementRecovery(day.movementRecovery),
+      bodyCompositionEntries: Array.isArray(day.bodyCompositionEntries)
+        ? day.bodyCompositionEntries
+        : [],
+      healthCheckpoints: Array.isArray(day.healthCheckpoints)
+        ? day.healthCheckpoints
+        : [],
+    }
   }
   return createDayRecord(dateKey, settings)
 }
@@ -215,6 +238,14 @@ export const normalizeBackup = (backup) => {
         : [],
       pantryItems: Array.isArray(backup.settings?.pantryItems)
         ? backup.settings.pantryItems
+        : [],
+      customWorkoutTypes: Array.isArray(backup.settings?.customWorkoutTypes)
+        ? backup.settings.customWorkoutTypes
+        : [],
+      healthMeasurementDefinitions: Array.isArray(
+        backup.settings?.healthMeasurementDefinitions,
+      )
+        ? backup.settings.healthMeasurementDefinitions
         : [],
       pantryBackfilledAt: backup.settings?.pantryBackfilledAt ?? '',
       colaStretch: normalizeColaStretchSettings(backup.settings ?? {}),
