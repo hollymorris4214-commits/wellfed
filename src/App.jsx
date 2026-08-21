@@ -3,6 +3,12 @@ import { createPortal } from 'react-dom'
 import './App.css'
 import coffeeIconUrl from './assets/transparent_coffee_icon.svg'
 import {
+  HealthView,
+  MovementRecoveryPanel,
+  MovementTrendPanel,
+  WorkoutPicker,
+} from './HealthTracking'
+import {
   BREATH_RELAXATION_OPTIONS,
   BRISTOL_TYPE_IDS,
   BRISTOL_TYPES,
@@ -37,6 +43,12 @@ import {
   createCustomNutrient,
   getNutrients,
 } from './data/nutrients'
+import {
+  collectExerciseNames,
+  measurementKey,
+  normaliseMovementRecovery,
+  optionalNumber,
+} from './data/health'
 import {
   addDays,
   dateKeyFromDate,
@@ -78,7 +90,15 @@ import {
   getWeekSummary,
 } from './utils/reports'
 
-const TABS = ['dashboard', 'today', 'week', 'month', 'pantry', 'settings']
+const TABS = [
+  'dashboard',
+  'today',
+  'week',
+  'month',
+  'health',
+  'pantry',
+  'settings',
+]
 const MONTH_NAMES = Array.from({ length: 12 }, (_, index) =>
   new Intl.DateTimeFormat('en-AU', { month: 'long' }).format(
     new Date(2026, index, 1),
@@ -161,6 +181,21 @@ const createBackupSummary = (days = {}, settings = {}) => {
         (day.bodyEvents?.length ?? 0) +
         (day.bowelEvents?.length ?? 0) +
         (day.glp1Doses?.length ?? 0),
+      0,
+    ),
+    bodyCompositionEntries: dayRecords.reduce(
+      (total, day) => total + (day.bodyCompositionEntries?.length ?? 0),
+      0,
+    ),
+    healthCheckpoints: dayRecords.reduce(
+      (total, day) => total + (day.healthCheckpoints?.length ?? 0),
+      0,
+    ),
+    workouts: dayRecords.reduce(
+      (total, day) =>
+        total +
+        (day.bodyEvents ?? []).filter((event) => event.kind === 'workout')
+          .length,
       0,
     ),
     customNutrients: settings.customNutrients?.length ?? 0,
@@ -540,6 +575,7 @@ function App() {
   const templatePreviewRef = useRef(null)
   const reportPreviewRef = useRef(null)
   const nutrients = useMemo(() => getNutrients(settings), [settings])
+  const exerciseNames = useMemo(() => collectExerciseNames(days), [days])
   const currentDate = selectedDate
   const realToday = todayKey()
   const isViewingToday = currentDate === realToday
@@ -652,6 +688,124 @@ function App() {
         },
       }
     })
+  }
+
+  const updateMovementRecovery = (date, updates) => {
+    updateDay(date, (day) => ({
+      ...day,
+      movementRecovery: {
+        ...normaliseMovementRecovery(day.movementRecovery),
+        ...updates,
+        source: 'manual',
+        updatedAt: new Date().toISOString(),
+      },
+    }))
+  }
+
+  const saveBodyComposition = ({ date, notes, values }) => {
+    const entry = {
+      id: createId(),
+      date,
+      values,
+      notes,
+      source: 'manual',
+      createdAt: new Date().toISOString(),
+    }
+    updateDay(date, (day) => ({
+      ...day,
+      bodyCompositionEntries: [
+        ...(day.bodyCompositionEntries ?? []),
+        entry,
+      ],
+    }))
+    setToast('Body composition saved.')
+  }
+
+  const deleteBodyComposition = (entry) => {
+    updateDay(entry.date, (day) => ({
+      ...day,
+      bodyCompositionEntries: (day.bodyCompositionEntries ?? []).filter(
+        (item) => item.id !== entry.id,
+      ),
+    }))
+    setToast('Body-composition entry deleted.')
+  }
+
+  const saveHealthCheckpoint = (payload) => {
+    const definitions = [...(settings.healthMeasurementDefinitions ?? [])]
+    const measurements = payload.measurements.map((measurement) => {
+      let definition = definitions.find(
+        (item) => item.id === measurement.definitionId,
+      )
+      if (!definition) {
+        const candidateKey = measurementKey(measurement)
+        definition = definitions.find(
+          (item) => measurementKey(item) === candidateKey,
+        )
+      }
+
+      const definitionValues = {
+        name: measurement.name.trim(),
+        unit: measurement.unit.trim(),
+        category: measurement.category.trim(),
+        direction: measurement.direction || 'none',
+        targetMin: optionalNumber(measurement.targetMin),
+        targetMax: optionalNumber(measurement.targetMax),
+      }
+
+      if (definition) {
+        definition = { ...definition, ...definitionValues }
+        const index = definitions.findIndex((item) => item.id === definition.id)
+        definitions[index] = definition
+      } else {
+        definition = {
+          id: createId(),
+          ...definitionValues,
+          createdAt: new Date().toISOString(),
+        }
+        definitions.push(definition)
+      }
+
+      return {
+        id: createId(),
+        definitionId: definition.id,
+        ...definitionValues,
+        value: Number(measurement.value),
+        referenceMin: optionalNumber(measurement.referenceMin),
+        referenceMax: optionalNumber(measurement.referenceMax),
+        notes: measurement.notes.trim(),
+      }
+    })
+    const checkpoint = {
+      id: createId(),
+      type: payload.type,
+      date: payload.date,
+      provider: payload.provider,
+      notes: payload.notes,
+      measurements,
+      source: 'manual',
+      createdAt: new Date().toISOString(),
+    }
+
+    setSettings((previous) => ({
+      ...previous,
+      healthMeasurementDefinitions: definitions,
+    }))
+    updateDay(payload.date, (day) => ({
+      ...day,
+      healthCheckpoints: [...(day.healthCheckpoints ?? []), checkpoint],
+    }))
+    setToast(`${payload.type} checkpoint saved.`)
+  }
+
+  const deleteHealthCheckpoint = (checkpoint) => {
+    updateDay(checkpoint.date, (day) => ({
+      ...day,
+      healthCheckpoints: (day.healthCheckpoints ?? []).filter(
+        (item) => item.id !== checkpoint.id,
+      ),
+    }))
+    setToast('Health checkpoint deleted.')
   }
 
   const fallbackCopyText = (text) => {
@@ -781,6 +935,14 @@ function App() {
     setBodyPickerMode('menu')
     setAttentionTarget({ id: Date.now(), target: 'body' })
     setToast('Body note ready.')
+  }
+
+  const openTodayWorkout = () => {
+    setSelectedDate(realToday)
+    setActiveTab('today')
+    setBodyPickerMode('workout')
+    setAttentionTarget({ id: Date.now(), target: 'body' })
+    setToast('Workout log ready.')
   }
 
   const markReportCopied = () => {
@@ -1324,6 +1486,43 @@ function App() {
     setToast(`${bodyEventKindLabel(kind)} ${score}/10 logged.`)
   }
 
+  const logWorkoutEvent = (payload) => {
+    const event = {
+      id: createId(),
+      date: payload.date,
+      time: payload.time,
+      kind: 'workout',
+      workoutType: payload.workoutType,
+      durationMinutes: Number(payload.durationMinutes),
+      rpe: Number(payload.rpe),
+      notes: payload.notes,
+      pilatesSubtype: payload.pilatesSubtype,
+      performance: payload.performance,
+      source: 'manual',
+      createdAt: new Date().toISOString(),
+    }
+    updateDay(payload.date, (day) => ({
+      ...day,
+      bodyEvents: [...(day.bodyEvents ?? []), event].sort((a, b) =>
+        a.time.localeCompare(b.time),
+      ),
+    }))
+    if (payload.customWorkoutType) {
+      setSettings((previous) => ({
+        ...previous,
+        customWorkoutTypes: [
+          ...new Set([
+            ...(previous.customWorkoutTypes ?? []),
+            payload.customWorkoutType,
+          ]),
+        ],
+      }))
+    }
+    setSelectedDate(payload.date)
+    setBodyPickerMode(null)
+    setToast(`${payload.workoutType} workout logged.`)
+  }
+
   const logCravingEvent = (craving) => {
     const label = craving.trim()
     if (!label) return
@@ -1735,11 +1934,15 @@ function App() {
             day={dashboardDay}
             onAddWater={addDashboardWater}
             onBodyNote={openTodayBodyNote}
+            onLogWorkout={openTodayWorkout}
             onLogMeal={() => openTodayWithTemplate('meal')}
             onOpenToday={openTodayJournal}
             onSupplement={() => openTodayWithTemplate('supplement')}
             settings={settings}
             totals={dashboardTotals}
+            updateMovementRecovery={(updates) =>
+              updateMovementRecovery(realToday, updates)
+            }
             updatedMetric={updatedMetric}
             week={dashboardWeek}
           />
@@ -1758,6 +1961,7 @@ function App() {
             draft={draft}
             editEvent={editEvent}
             editingEvent={editingEvent}
+            exerciseNames={exerciseNames}
             foodEntryOpen={foodEntryOpen}
             flyNonce={flyNonce}
             goToNextDay={goToNextDay}
@@ -1772,6 +1976,7 @@ function App() {
             logGlp1Dose={logGlp1Dose}
             logGlp1SymptomEvent={logGlp1SymptomEvent}
             logPcosContextEvent={logPcosContextEvent}
+            logWorkoutEvent={logWorkoutEvent}
             logPantryItem={logPantryItem}
             logSupplementPreset={logSupplementPreset}
             openDuplicateEvent={openDuplicateEvent}
@@ -1802,6 +2007,7 @@ function App() {
             updateBowelEventTime={updateBowelEventTime}
             updateBodyEventTime={updateBodyEventTime}
             updateGlp1DoseTime={updateGlp1DoseTime}
+            updateMovementRecovery={updateMovementRecovery}
             week={week}
             setBodyPickerMode={setBodyPickerMode}
             clearTemplatePreview={() => {
@@ -1840,6 +2046,18 @@ function App() {
             currentMonth={currentMonth}
             days={days}
             settings={settings}
+          />
+        )}
+        {activeTab === 'health' && (
+          <HealthView
+            days={days}
+            measurementDefinitions={
+              settings.healthMeasurementDefinitions ?? []
+            }
+            onDeleteBodyComposition={deleteBodyComposition}
+            onDeleteCheckpoint={deleteHealthCheckpoint}
+            onSaveBodyComposition={saveBodyComposition}
+            onSaveCheckpoint={saveHealthCheckpoint}
           />
         )}
         {activeTab === 'pantry' && (
@@ -1976,10 +2194,12 @@ function DashboardView({
   day,
   onAddWater,
   onBodyNote,
+  onLogWorkout,
   onLogMeal,
   onSupplement,
   settings,
   totals,
+  updateMovementRecovery,
   updatedMetric,
 }) {
   const careStatuses = dashboardCareStatuses({ day, settings, totals })
@@ -2109,6 +2329,12 @@ function DashboardView({
           </div>
         </div>
       </section>
+      <MovementRecoveryPanel
+        date={day.date}
+        movement={day.movementRecovery}
+        onChange={updateMovementRecovery}
+        onLogWorkout={onLogWorkout}
+      />
     </div>
   )
 }
@@ -2207,6 +2433,7 @@ function TodayView({
   draft,
   editEvent,
   editingEvent,
+  exerciseNames,
   foodEntryOpen,
   flyNonce,
   goToNextDay,
@@ -2220,6 +2447,7 @@ function TodayView({
   logGlp1Dose,
   logGlp1SymptomEvent,
   logPcosContextEvent,
+  logWorkoutEvent,
   logPantryItem,
   logSupplementPreset,
   nutrients,
@@ -2245,6 +2473,7 @@ function TodayView({
   updateBowelEventTime,
   updateBodyEventTime,
   updateGlp1DoseTime,
+  updateMovementRecovery,
   week,
   setBodyPickerMode,
 }) {
@@ -2449,6 +2678,13 @@ function TodayView({
         />
       </section>
 
+      <MovementRecoveryPanel
+        date={today.date}
+        movement={today.movementRecovery}
+        onChange={(updates) => updateMovementRecovery(today.date, updates)}
+        onLogWorkout={() => setBodyPickerMode('workout')}
+      />
+
       <HomeCollapsePanel
         className="visual-panel bank-panel"
         eyebrow="Context"
@@ -2509,6 +2745,9 @@ function TodayView({
         )}
         {bodyPickerMode && (
           <BodyEventPicker
+            currentDate={today.date}
+            customWorkoutTypes={settings.customWorkoutTypes ?? []}
+            exerciseNames={exerciseNames}
             glp1Enabled={settings.glp1?.enabled}
             pcosEnabled={settings.pcos?.enabled}
             logBowelEvent={logBowelEvent}
@@ -2516,6 +2755,7 @@ function TodayView({
             logCravingEvent={logCravingEvent}
             logGlp1SymptomEvent={logGlp1SymptomEvent}
             logPcosContextEvent={logPcosContextEvent}
+            logWorkoutEvent={logWorkoutEvent}
             mode={bodyPickerMode}
             setMode={setBodyPickerMode}
           />
@@ -2687,9 +2927,14 @@ function TodayView({
         icon={<ClockIcon />}
         isOpen={homeSectionsOpen.timeline}
         onToggle={() => toggleHomeSection('timeline')}
-        summary={`${todayEvents.length} events`}
+        summary={`${todayEvents.length + todayBowelEvents.length + visibleTodayBodyEvents.length} events`}
         title="Timeline"
       >
+        <DailyEventLedger
+          bodyEvents={visibleTodayBodyEvents}
+          bowelEvents={todayBowelEvents}
+          foodEvents={todayEvents}
+        />
         <VineTimeline
           deleteEvent={deleteEvent}
           editEvent={editEvent}
@@ -2913,6 +3158,12 @@ function WeekView({
         />
       </section>
 
+      <MovementTrendPanel
+        dateKeys={week.dateKeys}
+        days={days}
+        title="Seven-day signals"
+      />
+
       <section className="nutrient-panel wide-panel">
         <div className="section-heading">
           <div>
@@ -3005,6 +3256,12 @@ function MonthView({ copyReport, currentMonth, days, settings }) {
           pcosEnabled={settings.pcos?.enabled}
         />
       </section>
+
+      <MovementTrendPanel
+        dateKeys={month.dateKeys}
+        days={days}
+        title="Monthly signals"
+      />
 
       <section className="nutrient-panel wide-panel">
         <div className="section-heading">
@@ -4030,9 +4287,9 @@ function SettingsView({
           <div className="backup-safety-copy">
             <h3>Full local backup</h3>
             <p>
-              JSON backup includes your food logs, body notes, water, settings,
-              pantry, supplement presets, custom nutrients, and reports source
-              data. Use this to move WellFed between laptop and phone.
+              JSON backup includes nutrition, workouts, movement and recovery,
+              body composition, health checkpoints, settings, pantry, and report
+              source data. Use this to move WellFed between laptop and phone.
             </p>
           </div>
 
@@ -4048,6 +4305,18 @@ function SettingsView({
             <span>
               <strong>{backupSummary.bodyEvents}</strong>
               <small>body notes</small>
+            </span>
+            <span>
+              <strong>{backupSummary.workouts}</strong>
+              <small>workouts</small>
+            </span>
+            <span>
+              <strong>{backupSummary.bodyCompositionEntries}</strong>
+              <small>composition</small>
+            </span>
+            <span>
+              <strong>{backupSummary.healthCheckpoints}</strong>
+              <small>checkpoints</small>
             </span>
             <span>
               <strong>{backupSummary.pantryItems}</strong>
@@ -4779,11 +5048,19 @@ function BristolPicker({ logBowelEvent, onClose }) {
 function bodyEventKindLabel(kind) {
   if (kind === 'hunger') return 'Hunger'
   if (kind === 'energy') return 'Energy'
+  if (kind === 'workout') return 'Workout'
   if (kind === 'foodNoise') return 'Food noise'
   if (kind === 'craving') return 'Craving'
   if (kind === 'glp1Symptom') return 'GLP-1'
   if (kind === 'pcosContext') return 'PCOS context'
   return kind
+}
+
+function workoutEventSummary(event) {
+  const subtype = event.pilatesSubtype ? ` · ${event.pilatesSubtype}` : ''
+  return `${event.workoutType || 'Workout'}${subtype} · ${formatAmount(
+    event.durationMinutes,
+  )} min · RPE ${event.rpe}/10`
 }
 
 function Glp1SupportCard({
@@ -4975,6 +5252,9 @@ function PcosContextPicker({ logPcosContextEvent, setMode }) {
 }
 
 function BodyEventPicker({
+  currentDate,
+  customWorkoutTypes,
+  exerciseNames,
   glp1Enabled,
   pcosEnabled,
   logBowelEvent,
@@ -4982,6 +5262,7 @@ function BodyEventPicker({
   logCravingEvent,
   logGlp1SymptomEvent,
   logPcosContextEvent,
+  logWorkoutEvent,
   mode,
   setMode,
 }) {
@@ -5018,6 +5299,16 @@ function BodyEventPicker({
               E
             </span>
             <strong>Energy level</strong>
+          </button>
+          <button
+            aria-label="Log workout"
+            onClick={() => setMode('workout')}
+            type="button"
+          >
+            <span aria-hidden="true" className="body-event-mark workout">
+              W
+            </span>
+            <strong>Workout</strong>
           </button>
           <button
             aria-label="Log bowel movement"
@@ -5071,6 +5362,18 @@ function BodyEventPicker({
       <BristolPicker
         logBowelEvent={logBowelEvent}
         onClose={() => setMode(null)}
+      />
+    )
+  }
+
+  if (mode === 'workout') {
+    return (
+      <WorkoutPicker
+        currentDate={currentDate}
+        customWorkoutTypes={customWorkoutTypes}
+        exerciseNames={exerciseNames}
+        onBack={() => setMode('menu')}
+        onLog={logWorkoutEvent}
       />
     )
   }
@@ -5293,7 +5596,7 @@ function BodyEventTimeline({ deleteBodyEvent, events, updateBodyEventTime }) {
   if (!events.length) {
     return (
       <p className="empty-note">
-        No hunger, energy, craving, or GLP-1 notes yet.
+        No hunger, energy, workout, craving, or GLP-1 notes yet.
       </p>
     )
   }
@@ -5321,6 +5624,8 @@ function BodyEventTimeline({ deleteBodyEvent, events, updateBodyEventTime }) {
             <small>
               {event.kind === 'craving'
                 ? event.label
+                : event.kind === 'workout'
+                  ? workoutEventSummary(event)
                 : event.kind === 'glp1Symptom'
                   ? `${event.label} ${event.severity}`
                   : event.kind === 'pcosContext'
@@ -5420,6 +5725,7 @@ function ColaStretchCard({ stretch }) {
 function summariseBodyEvents(events = []) {
   const hunger = events.filter((event) => event.kind === 'hunger')
   const energy = events.filter((event) => event.kind === 'energy')
+  const workouts = events.filter((event) => event.kind === 'workout')
   const foodNoise = events.filter((event) => event.kind === 'foodNoise')
   const cravings = events.filter((event) => event.kind === 'craving')
   const glp1Symptoms = events.filter((event) => event.kind === 'glp1Symptom')
@@ -5436,6 +5742,11 @@ function summariseBodyEvents(events = []) {
   return {
     hungerAverage: avg(hunger),
     energyAverage: avg(energy),
+    workouts,
+    workoutMinutes: workouts.reduce(
+      (total, event) => total + (Number(event.durationMinutes) || 0),
+      0,
+    ),
     foodNoiseAverage: avg(foodNoise),
     cravings: [...new Set(cravings.map((event) => event.label).filter(Boolean))],
     glp1Symptoms,
@@ -5500,6 +5811,9 @@ function BowelWeekPanel({ pcosEnabled, week }) {
       <div className="body-summary-strip">
         <span>Hunger {bodySummary.hungerAverage ?? '-'}/10</span>
         <span>Energy {bodySummary.energyAverage ?? '-'}/10</span>
+        <span>
+          {bodySummary.workouts.length} workouts · {bodySummary.workoutMinutes} min
+        </span>
         <span>{bodySummary.cravings.length} craving signals</span>
         {bodySummary.glp1Symptoms.length > 0 && (
           <span>{bodySummary.glp1Symptoms.length} GLP-1 notes</span>
@@ -5548,6 +5862,10 @@ function BowelMonthPanel({ days, month, pcosEnabled }) {
         <div>
           <strong>{bodySummary.glp1Symptoms.length}</strong>
           <span>GLP-1 notes</span>
+        </div>
+        <div>
+          <strong>{bodySummary.workouts.length}</strong>
+          <span>workouts</span>
         </div>
         {bodySummary.pcosContexts.length > 0 && (
           <div>
@@ -5875,6 +6193,59 @@ function PcosFoodContextDialog({ event, onClose, onSave }) {
       </section>
     </div>,
     document.body,
+  )
+}
+
+function DailyEventLedger({ bodyEvents = [], bowelEvents = [], foodEvents = [] }) {
+  const items = [
+    ...foodEvents.map((event) => ({ ...event, timelineType: 'food' })),
+    ...bodyEvents.map((event) => ({ ...event, timelineType: 'body' })),
+    ...bowelEvents.map((event) => ({ ...event, timelineType: 'bowel' })),
+  ].sort((a, b) => `${a.time}${a.timelineType}`.localeCompare(`${b.time}${b.timelineType}`))
+
+  if (!items.length) {
+    return <p className="empty-note">No daily events yet.</p>
+  }
+
+  const detail = (event) => {
+    if (event.timelineType === 'food') {
+      return `${event.type} · ${formatAmount(event.nutrients?.caloriesKcal)} kcal`
+    }
+    if (event.timelineType === 'bowel') {
+      return `Bowel movement · Type ${event.type}`
+    }
+    if (event.kind === 'workout') return workoutEventSummary(event)
+    if (event.kind === 'craving') return `Craving · ${event.label}`
+    if (event.kind === 'glp1Symptom') {
+      return `GLP-1 · ${event.label} ${event.severity}`
+    }
+    if (event.kind === 'pcosContext') return pcosCheckinLine(event)
+    return `${bodyEventKindLabel(event.kind)} ${event.score}/10`
+  }
+
+  return (
+    <div className="daily-event-ledger">
+      <p className="eyebrow">Complete chronology</p>
+      <ol aria-label="All daily events in chronological order">
+        {items.map((event) => (
+          <li className={`${event.timelineType} ${event.kind ?? event.type}`} key={`${event.timelineType}-${event.id}`}>
+            <time>{event.time}</time>
+            <span aria-hidden="true" className="ledger-dot" />
+            <div>
+              <strong>
+                {event.timelineType === 'food'
+                  ? event.name
+                  : event.timelineType === 'bowel'
+                    ? 'Body event'
+                    : bodyEventKindLabel(event.kind)}
+              </strong>
+              <small>{detail(event)}</small>
+              {event.notes && <small>{event.notes}</small>}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
   )
 }
 
