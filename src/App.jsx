@@ -4778,6 +4778,7 @@ function BristolPicker({ logBowelEvent, onClose }) {
 
 function bodyEventKindLabel(kind) {
   if (kind === 'hunger') return 'Hunger'
+  if (kind === 'energy') return 'Energy'
   if (kind === 'foodNoise') return 'Food noise'
   if (kind === 'craving') return 'Craving'
   if (kind === 'glp1Symptom') return 'GLP-1'
@@ -4986,6 +4987,7 @@ function BodyEventPicker({
 }) {
   const scoreButtons = Array.from({ length: 10 }, (_, index) => index + 1)
   const [hungerNotes, setHungerNotes] = useState('')
+  const [energyNotes, setEnergyNotes] = useState('')
 
   if (mode === 'menu') {
     return (
@@ -5006,6 +5008,16 @@ function BodyEventPicker({
               H
             </span>
             <strong>Hunger</strong>
+          </button>
+          <button
+            aria-label="Log energy level"
+            onClick={() => setMode('energy')}
+            type="button"
+          >
+            <span aria-hidden="true" className="body-event-mark">
+              E
+            </span>
+            <strong>Energy level</strong>
           </button>
           <button
             aria-label="Log bowel movement"
@@ -5146,6 +5158,42 @@ function BodyEventPicker({
     )
   }
 
+  if (mode === 'energy') {
+    return (
+      <div className="body-event-picker">
+        <div className="picker-header">
+          <strong>Energy</strong>
+          <button onClick={() => setMode('menu')} type="button">
+            Back
+          </button>
+        </div>
+        <p className="quiet">
+          1 depleted, 5 steady, 7 energised, 10 exceptionally energised.
+        </p>
+        <label className="body-note-field">
+          <span>Notes optional</span>
+          <input
+            onChange={(event) => setEnergyNotes(event.target.value)}
+            placeholder="Context, sensations, what was happening..."
+            type="text"
+            value={energyNotes}
+          />
+        </label>
+        <div className="score-option-grid">
+          {scoreButtons.map((score) => (
+            <button
+              key={score}
+              onClick={() => logBodyScoreEvent('energy', score, energyNotes)}
+              type="button"
+            >
+              {score}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="body-event-picker">
       <div className="picker-header">
@@ -5245,7 +5293,7 @@ function BodyEventTimeline({ deleteBodyEvent, events, updateBodyEventTime }) {
   if (!events.length) {
     return (
       <p className="empty-note">
-        No hunger, craving, or GLP-1 notes yet.
+        No hunger, energy, craving, or GLP-1 notes yet.
       </p>
     )
   }
@@ -5371,6 +5419,7 @@ function ColaStretchCard({ stretch }) {
 
 function summariseBodyEvents(events = []) {
   const hunger = events.filter((event) => event.kind === 'hunger')
+  const energy = events.filter((event) => event.kind === 'energy')
   const foodNoise = events.filter((event) => event.kind === 'foodNoise')
   const cravings = events.filter((event) => event.kind === 'craving')
   const glp1Symptoms = events.filter((event) => event.kind === 'glp1Symptom')
@@ -5386,6 +5435,7 @@ function summariseBodyEvents(events = []) {
 
   return {
     hungerAverage: avg(hunger),
+    energyAverage: avg(energy),
     foodNoiseAverage: avg(foodNoise),
     cravings: [...new Set(cravings.map((event) => event.label).filter(Boolean))],
     glp1Symptoms,
@@ -5449,6 +5499,7 @@ function BowelWeekPanel({ pcosEnabled, week }) {
       </div>
       <div className="body-summary-strip">
         <span>Hunger {bodySummary.hungerAverage ?? '-'}/10</span>
+        <span>Energy {bodySummary.energyAverage ?? '-'}/10</span>
         <span>{bodySummary.cravings.length} craving signals</span>
         {bodySummary.glp1Symptoms.length > 0 && (
           <span>{bodySummary.glp1Symptoms.length} GLP-1 notes</span>

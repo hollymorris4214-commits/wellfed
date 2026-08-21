@@ -3765,7 +3765,8 @@ textarea {
   scroll-snap-align: start;
 }
 
-.body-event-chip.hunger {
+.body-event-chip.hunger,
+.body-event-chip.energy {
   background: rgba(217, 154, 120, 0.18);
 }
 
@@ -6291,4 +6292,3 @@ textarea {
     right: 0;
   }
 }
-
