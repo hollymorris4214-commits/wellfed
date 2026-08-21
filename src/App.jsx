@@ -937,14 +937,6 @@ function App() {
     setToast('Body note ready.')
   }
 
-  const openTodayWorkout = () => {
-    setSelectedDate(realToday)
-    setActiveTab('today')
-    setBodyPickerMode('workout')
-    setAttentionTarget({ id: Date.now(), target: 'body' })
-    setToast('Workout log ready.')
-  }
-
   const markReportCopied = () => {
     setReportCopied(true)
     window.setTimeout(() => setReportCopied(false), 1400)
@@ -1934,15 +1926,11 @@ function App() {
             day={dashboardDay}
             onAddWater={addDashboardWater}
             onBodyNote={openTodayBodyNote}
-            onLogWorkout={openTodayWorkout}
             onLogMeal={() => openTodayWithTemplate('meal')}
             onOpenToday={openTodayJournal}
             onSupplement={() => openTodayWithTemplate('supplement')}
             settings={settings}
             totals={dashboardTotals}
-            updateMovementRecovery={(updates) =>
-              updateMovementRecovery(realToday, updates)
-            }
             updatedMetric={updatedMetric}
             week={dashboardWeek}
           />
@@ -2194,12 +2182,10 @@ function DashboardView({
   day,
   onAddWater,
   onBodyNote,
-  onLogWorkout,
   onLogMeal,
   onSupplement,
   settings,
   totals,
-  updateMovementRecovery,
   updatedMetric,
 }) {
   const careStatuses = dashboardCareStatuses({ day, settings, totals })
@@ -2329,12 +2315,6 @@ function DashboardView({
           </div>
         </div>
       </section>
-      <MovementRecoveryPanel
-        date={day.date}
-        movement={day.movementRecovery}
-        onChange={updateMovementRecovery}
-        onLogWorkout={onLogWorkout}
-      />
     </div>
   )
 }
